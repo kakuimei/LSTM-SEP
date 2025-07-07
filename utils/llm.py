@@ -1,3 +1,4 @@
+import os
 import openai
 from tenacity import (
     retry,
@@ -6,7 +7,26 @@ from tenacity import (
 )
 # from fastchat.model import get_conversation_template
 import torch
+from openai import OpenAI
 
+#  export DEEPSEEK_API_KEY='sk-8dd3b65ec33940bd978b195d462189df'
+class DeepSeekLLM:
+    def __init__(self, model="deepseek-chat"):
+        self.client = OpenAI(
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com"
+        )
+        self.model = model
+
+    @retry(wait=wait_random_exponential(min=1, max=60),
+           stop=stop_after_attempt(6))
+    def __call__(self, prompt):
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False
+        )
+        return resp.choices[0].message.content
 
 class OpenAILLM:
     def __init__(self):

@@ -1,4 +1,4 @@
-from summarize_module.summarizer import Summarizer
+from summarize_module.summarizer import DeepSeekSummarizer
 import os, json
 import numpy as np
 import pandas as pd
@@ -10,7 +10,7 @@ class DataLoader:
         self.price_dir = args.price_dir
         self.tweet_dir = args.tweet_dir
         self.seq_len = args.seq_len
-        self.summarizer = Summarizer()
+        self.summarizer = DeepSeekSummarizer()
 
 
     def daterange(self, start_date, end_date):
