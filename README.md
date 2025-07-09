@@ -1,50 +1,48 @@
-# Summarize-Explain-Predict (SEP)
+# SEP-Memory: Enhance Explainable Stock Predictions with Multi-Layer Memory
 
-This repository contains the code for "Learning to Generate Explainable Stock Predictions using Self-Reflective Large Language Models" [[Paper](https://arxiv.org/abs/2402.03659)].
+This project combines the **Summarize–Explain–Predict (SEP)** framework with a custom multi-layer memory system (MemoryDB & BrainDB) to deliver both accurate and human-readable stock predictions. Leveraging daily news & social media data, SEP-Memory adds:
 
-## Setup
+- **Short-term**, **Mid-term**, **Long-term** & **Reflection** memories  
+- **Memory-augmented self-reflection prompts**  
+- **PPO-driven reinforcement** with memory feedback loops  
+- **Automated memory “jump”** for pattern consolidation  
 
-To get started:
+---
 
-1. Install the module dependencies into your environment:
+## 🚀 Key Features
+
+1. **Multi-Layer Memory**  
+   - _Short-term_: Daily summaries & market moves  
+   - _Mid-term_: Self-reflection corrections & refined explanations  
+   - _Long-term_: High-reward patterns & robust signals  
+   - _Reflection_: Error cases for targeted retraining  
+
+2. **Memory-Augmented Explainability**  
+   - Retrieve relevant past summaries & reflections  
+   - Inject context into LLM prompts for sharper, more reliable explanations  
+
+3. **End-to-End Reinforcement Loop**  
+   - **Predict** with PPO policy network  
+   - Compute real-world rewards (price change or portfolio return)  
+   - Write back successes/failures into memory layers  
+
+4. **Automated Memory “Jump”**  
+   - Hot items automatically promoted from short → mid/long based on importance  
+   - Low-value items demoted or pruned  
+
+5. **OpenAI Embeddings + FAISS** for sub-second retrieval
+
+---
+
+- **Summarize**: ingest & compress daily text → add to _short-term_  
+- **Explain**: LLM v1 → self-reflect with memory context → v2 → add to _mid-term_  
+- **Predict**: PPO agent reads combined state (summary + explanations + retrieved memory) → outputs trade signals → writes outcomes to _long-term_ or _reflection_
+
+---
+
+## 📂 Installation & Setup
+
 ```bash
+git clone https://github.com/your-org/sep-memory.git
+cd sep-memory
 pip install -r requirements.txt
-```
-
-2. Set `OPENAI_API_KEY` environment variable to your OpenAI API key:
-```bash
-export OPENAI_API_KEY=<your key>
-```
-
-3. Run a sample experiment:
-```bash
-python main.py --price_dir "data/sample_price/preprocessed/" --tweet_dir "data/sample_tweet/raw/"
-```
-
-## Note
-
-The full dataset used in the work can be found [here](https://github.com/koa-fin/sn2).
-
-Due to the nature of these experiments, it may not be feasible for individual developers to rerun the full results as OpenAI has significant API charges.
-
-## Citation
-
-If you find this repository useful, please cite our paper.
-
-```
-@inproceedings{koa2024learning,
-  title={Learning to Generate Explainable Stock Predictions using Self-Reflective Large Language Models},
-  author={Koa, Kelvin J.L. and Ma, Yunshan and Ng, Ritchie and Chua, Tat-Seng},
-  booktitle={Proceedings of the ACM on Web Conference 2024},
-  pages={4304–4315},
-  year={2024}
-}
-```
-
-## Acknowledgement
-
-We appreciate the following GitHub repositories a lot for their valuable code base:
-
-https://github.com/noahshinn/reflexion
-
-https://github.com/jackaduma/Vicuna-LoRA-RLHF-PyTorch
