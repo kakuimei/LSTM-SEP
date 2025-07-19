@@ -46,3 +46,31 @@ Previous trial:
 {scratchpad}
 
 Reflection:"""
+
+WEEKLY_SUMMARIZE_INSTRUCTION = """
+Given daily tweet summaries for {ticker} over the week from {week_start} to {week_end}, generate a concise weekly report that:
+
+1. Highlights the top 3–5 market-moving events or themes  
+2. Describes the overall sentiment trend  
+3. Provides one actionable insight or prediction based on these observations  
+
+Use complete sentences or numbered bullets.  
+Daily Summaries:
+{daily_summaries}
+
+Weekly Report:
+"""
+
+MONTHLY_SUMMARIZE_INSTRUCTION = """
+Given the weekly summaries for {ticker} over the month from {month_start} to {month_end}, generate a concise monthly report that:
+
+1. Highlights the top 3–5 major market themes or events  
+2. Describes the overall sentiment trend across the weeks  
+3. Offers one strategic insight or recommendation for the coming month  
+
+Use complete sentences or numbered bullets.  
+Weekly Summaries:
+{weekly_summaries}
+
+Monthly Report:
+"""

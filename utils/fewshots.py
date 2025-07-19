@@ -158,3 +158,36 @@ Price Movement: Negative
 
 Explanation: Apple reported disappointing Q2 2016 earnings, missing both profit and revenue estimates. The company's revenue and adjusted earnings per share fell short of expectations, marking the first quarterly revenue decline in 13 years. iPhone sales, a cornerstone of Apple's business, experienced their first-ever decline since the product's debut in 2007. The weaker-than-expected guidance for the next quarter further dampened investor Price Movement. The CEO's acknowledgment of strong macroeconomic headwinds, particularly in China, indicated external challenges affecting the company's performance. Despite announcing plans to increase dividends and return more to shareholders, the stock price plunged around 4.8% in after-hours trading following the earnings report. Overall, these factors collectively indicate a negative Price Movement surrounding AAPL stock due to its underwhelming financial performance and market outlook.
 """
+
+WEEKLY_SUMMARIZE_EXAMPLES = """
+Daily Summaries:
+2025-07-14: Strong positive sentiment around Q2 earnings beat; volume spiked afterhours.  
+2025-07-15: [No tweet data]  
+2025-07-16: Discussion of upcoming product launch drove mixed sentiment.  
+2025-07-17: Fear over regulatory probe; negative tweets dominated.  
+2025-07-18: Relief rally after Fed comments; sentiment turned positive.  
+2025-07-19: Flat trading day; few actionable tweets.  
+2025-07-20: Bullish chatter on breakout above key resistance.
+
+Weekly Report:
+1. **Earnings Beat Rally (07/14):** The Q2 earnings surprise triggered the strongest positive sentiment of the week, with after-hours volume surging by 20%.  
+2. **Regulatory Concern Mid-Week (07/17):** Negative headlines about an investigation caused a temporary dip in sentiment, erasing ~3% of the week’s gains.  
+3. **Fed-Driven Relief (07/18):** Comments from the Fed Chair soothed markets, shifting tone back to bullish ahead of the weekend.  
+4. **Product Launch Anticipation (07/16):** Mixed reactions suggest traders are cautiously optimistic about the upcoming launch.  
+5. **Actionable Insight:** With sentiment now firmly back in positive territory and resistance broken on 07/20, a short-term long position could capitalize on continuing momentum.
+"""
+
+MONTHLY_SUMMARIZE_EXAMPLES = """
+Weekly Summaries:
+Week ending 2025-06-07: Continued bullish sentiment after Fed minutes; tech stocks led gains.  
+Week ending 2025-06-14: Profit-taking and rotation into defensive sectors; slight pullback.  
+Week ending 2025-06-21: Mixed reactions to GDP data; consumer staples outperformed.  
+Week ending 2025-06-28: Strong rally on hawkish Fed pause signal; broad market up 2.5%.  
+
+Monthly Report:
+1. **Fed-Driven Volatility:** Early-month Fed minutes triggered a sharp rally, but mid-month profit-taking led to a modest pullback before another leg up as the Fed indicated a pause.  
+2. **Sector Rotation:** Investors rotated from growth into defensives mid-June, with consumer staples and utilities outperforming.  
+3. **Economic Data Impact:** Mixed GDP and inflation readings created choppy sessions, underscoring sensitivity to macro releases.  
+4. **End-of-Month Rally:** Broad-based strength in the last week pushed indices to monthly highs, driven by tech stocks regaining momentum.  
+5. **Strategic Insight:** With Fed likely on hold, consider overweighting quality growth stocks early next month, while hedging with defensive names in event of data misses.
+"""

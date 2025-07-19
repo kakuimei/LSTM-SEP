@@ -8,6 +8,7 @@ from predict_module.tuning_lm_with_rl import tuning_lm_with_rl
 from transformers import LlamaTokenizer, pipeline #, AutoModelForCausalLM, BitsAndBytesConfig
 from trl import AutoModelForCausalLMWithValueHead
 import os, json
+from tqdm import tqdm
 
 
 class Exp_Model:
@@ -17,22 +18,26 @@ class Exp_Model:
 
 
     def train(self):
-        # Collect demonstration data
-        print("Loading Train Agents...")
-        data = self.dataloader.load(flag="train")
+        print("Streaming Train Agents with progress tracking...")
 
         agent_cls = PredictReflectAgent
-        agents = [agent_cls(row['ticker'], row['summary'], row['target']) for _, row in data.iterrows()]
-        print("Loaded Train Agents.")
-
-        for agent in agents:
+        dataloader = self.dataloader.load(flag="train")
+        agents = []
+        for sample in tqdm(dataloader, desc="Training agents"):
+            agent = agent_cls(sample['ticker'], sample['summary'], sample['target'])
             agent.run()
-
+            agents.append(agent)
+            
             if agent.is_correct():
                 prompt = agent._build_agent_prompt()
                 response = agent.scratchpad.split('Price Movement: ')[-1]
 
-                sample = {"instruction": prompt, "input": "", "output": response}
+                sample = {
+                    "instruction": prompt,
+                    "input": "",
+                    "output": response
+                }
+
                 with open(self.args.data_path, 'a') as f:
                     f.write(json.dumps(sample) + "\n")
 
