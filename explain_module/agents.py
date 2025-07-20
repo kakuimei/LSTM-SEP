@@ -14,7 +14,6 @@ import pickle
 class PredictAgent:
     def __init__(self,
                  ticker: str,
-                 date: str,
                  summary: str,
                  target: str,
                  predict_llm = DeepSeekLLM()
@@ -23,7 +22,6 @@ class PredictAgent:
         self.ticker = ticker
         self.summary = summary
         self.cur_record = target
-        self.cur_date = date
         self.prediction = ''
 
         self.predict_prompt = PREDICT_INSTRUCTION
@@ -61,6 +59,7 @@ class PredictAgent:
 class PredictReflectAgent(PredictAgent):
     def __init__(self,
                  ticker: str,
+                 date: date,
                  summary: str,
                  target: str,
                  predict_llm = DeepSeekLLM(),
@@ -77,6 +76,7 @@ class PredictReflectAgent(PredictAgent):
         self.reflections_str: str = ''
         self.reflection_result_series_dict = {}
         self.brain = brain_db
+        self.cur_date = date
         self.top_k = 5
         self.character_string = "You are a stock trading agent. You have access to the following information about the stock market and your past trades: \n"
 

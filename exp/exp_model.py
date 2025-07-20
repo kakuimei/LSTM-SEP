@@ -24,7 +24,7 @@ class Exp_Model:
         dataloader = self.dataloader.load(flag="train")
         agents = []
         for sample in tqdm(dataloader, desc="Training agents"):
-            agent = agent_cls(sample['ticker'], sample['summary'], sample['target'])
+            agent = agent_cls(ticker=sample['ticker'], date=sample['date'], summary=sample['summary'], target=sample['target'], brain_db=self.dataloader.brain_db)
             agent.run()
             agents.append(agent)
             
