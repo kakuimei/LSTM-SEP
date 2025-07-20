@@ -70,55 +70,63 @@ class DataLoader:
             else:
                 data_range = [d for d in full_dates if d >= split_date]
             
-            weekly_summary_dict = {} 
-            monthly_summary_dict = {}
+            daily_summary_dict = {}
             for date in data_range:
+
                 # get tweet data
                 date_str = date.strftime("%Y-%m-%d")
                 summary_all_parts = []
                 tweet_data = self.get_tweets(ticker, date_str)
                 if tweet_data:
-                    
-                    # daily_summary
+
+                    # write tweet to short memory
+                    self.brain_db.add_memory_short(symbol=ticker,date=date,text=tweet_data)
+
+                    # write daily_summary to mid memory
                     daily_summary = self.summarizer.get_summary(ticker, tweet_data)
                     if daily_summary and self.summarizer.is_informative(daily_summary):
-                        self.brain_db.add_memory_short(symbol=ticker,date=date,text=daily_summary)
-                        summary_all_parts.append(f"{date_str} Daily: {daily_summary}")
-                        weekly_summary_dict[date_str] = daily_summary
+                        self.brain_db.add_memory_mid(symbol=ticker,date=date,text=daily_summary)
+                        daily_summary_dict[date_str] = daily_summary
                     else:
-                        weekly_summary_dict[date_str] = "[Uninformative tweet summary]"
+                        daily_summary_dict[date_str] = "[Uninformative tweet summary]"
                 else:
-                    weekly_summary_dict[date_str] = "[No tweets available]"
+                    daily_summary_dict[date_str] = "[No tweets available]"
+                summary_all_parts.append(f"{date_str} Daily: \n{daily_summary}\n\n")
                 
-                # weekly_summary
-                if date.weekday() == 6:
+                # write weekly_summary to long memory
+                if date >= min_date + timedelta(days=6):
+
                     week_start = date - timedelta(days=6)
                     week_dates = [(week_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-                    daily_lines = [f"{d}: {weekly_summary_dict.get(d)}" for d in week_dates]
-                    raw_weekly_report = "\n".join(daily_lines)
+                    week_start_str = week_start.strftime("%Y-%m-%d")
+                    week_end_str = date.strftime("%Y-%m-%d")
+
+                    weekly_lines = [f"{d}: {daily_summary_dict.get(d, '[No data]')}" for d in week_dates]
+                    raw_weekly = "\n".join(weekly_lines)
+
                     weekly_summary = self.summarizer.get_weekly_summary(
-                        ticker=ticker, week_start=week_start, week_end= date, raw_weekly_report=raw_weekly_report
+                        ticker=ticker, week_start=week_start_str, week_end=week_end_str, raw_weekly_report=raw_weekly
                         )
-                    self.brain_db.add_memory_mid(symbol=ticker, date=date, text=weekly_summary)
-                    monthly_summary_dict[date.strftime("%Y-%m-%d")] = weekly_summary
-                    summary_all_parts.append(f"{date_str} Weekly: {weekly_summary}")
-                    weekly_summary_dict.clear()
+                    self.brain_db.add_memory_long(symbol=ticker, date=week_end_str, text=weekly_summary)
+
+                    summary_all_parts.append(f"Week {week_start_str} to {week_end_str} Summary: \n{weekly_summary}\n\n")
                 
-                # monthly_summary
-                last_day = calendar.monthrange(date.year, date.month)[1]
-                if date.day == last_day:
-                    month_start = date.replace(day=1)
-                    month_end = date
-                    month_weeks = sorted(monthly_summary_dict.keys())
-                    raw_monthly_report = "\n".join(
-                        f"Week ending {wd}: {monthly_summary_dict[wd]}" for wd in month_weeks
-                        )
+                # write monthly_summary to long memory
+                if date >= min_date + timedelta(days=29):
+                    month_start = date - timedelta(days=29)
+                    month_dates = [(month_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(30)]
+                    month_start_str = month_start.strftime("%Y-%m-%d")
+                    month_end_str = date.strftime("%Y-%m-%d")
+                    monthly_lines = [f"{d}: {daily_summary_dict.get(d, '[No data]')}" for d in month_dates]
+                    raw_monthly = "\n".join(monthly_lines)
                     monthly_summary = self.summarizer.get_monthly_summary(
-                        ticker=ticker, month_start=month_start, month_end=month_end, raw_monthly_report=raw_monthly_report
-                        )
-                    self.brain_db.add_memory_long(symbol=ticker, date=date, text=monthly_summary)
-                    summary_all_parts.append(f"{date_str} Monthly: {monthly_summary}")
-                    monthly_summary_dict.clear()
+                        ticker=ticker,
+                        month_start=month_start_str,
+                        month_end=month_end_str,
+                        raw_monthly_report=raw_monthly,
+                    )
+                    self.brain_db.add_memory_long(symbol=ticker, date=month_end_str, text=monthly_summary)
+                    summary_all_parts.append(f"Month {month_start_str} to {month_end_str} Summary: \n{monthly_summary}\n\n")
                 
                 # get the target sentiment
                 if date in available_dates:
@@ -132,7 +140,7 @@ class DataLoader:
                 if summary_all_parts:
                     yield {
                         'ticker': ticker,
-                        'date': date,
+                        'date': date_str,
                         'summary': "\n\n".join(summary_all_parts),
                         'target': target
                     }
