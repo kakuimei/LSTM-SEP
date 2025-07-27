@@ -4,7 +4,7 @@ from typing import Optional
 import torch
 from accelerate import Accelerator
 from datasets import load_dataset
-from peft import LoraConfig, prepare_model_for_int8_training
+from peft import LoraConfig, prepare_model_for_kbit_training
 from tqdm import tqdm
 from transformers import Adafactor, AutoTokenizer, HfArgumentParser, pipeline, BitsAndBytesConfig
 from transformers import LlamaTokenizer, LlamaConfig, LlamaForSequenceClassification, LlamaForCausalLM

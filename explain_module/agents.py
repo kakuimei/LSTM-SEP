@@ -10,13 +10,15 @@ import logging
 import os
 import shutil
 import pickle
+from unittest.mock import MagicMock
+from typing import Optional
 
 class PredictAgent:
     def __init__(self,
                  ticker: str,
                  summary: str,
                  target: str,
-                 predict_llm = DeepSeekLLM()
+                 predict_llm: Optional[DeepSeekLLM] = None,
                  ) -> None:
         
         self.ticker = ticker
@@ -26,7 +28,7 @@ class PredictAgent:
 
         self.predict_prompt = PREDICT_INSTRUCTION
         self.predict_examples = PREDICT_EXAMPLES
-        self.llm = predict_llm
+        self.llm = predict_llm or DeepSeekLLM()
 
         self.__reset_agent()
 
@@ -44,12 +46,17 @@ class PredictAgent:
         print(response, end="\n\n\n\n")
 
         self.finished = True
-
+    def prompt_agent(self) -> str:
+        return self.llm(self._build_agent_prompt())
+    
     def is_finished(self) -> bool:
         return self.finished
 
     def is_correct(self) -> bool:
-        return EM(self.target, self.prediction)
+        print(f'DEBUG: Prediction: {self.prediction}, Target: {self.cur_record}')
+        if self.cur_record is None or self.prediction is None:
+            return False
+        return EM(self.cur_record, self.prediction)
 
     def __reset_agent(self) -> None:
         self.finished = False
@@ -62,14 +69,14 @@ class PredictReflectAgent(PredictAgent):
                  date: date,
                  summary: str,
                  target: str,
-                 predict_llm = DeepSeekLLM(),
-                 reflect_llm = DeepSeekLLM(),
-                 brain_db = BrainDB()
+                 predict_llm: Optional[DeepSeekLLM] = None,
+                 reflect_llm: Optional[DeepSeekLLM] = None,
+                 brain_db: Optional[BrainDB] = None
                  ) -> None:
 
         super().__init__(ticker, summary, target, predict_llm)
-        self.predict_llm = predict_llm
-        self.reflect_llm = reflect_llm
+        self.predict_llm = predict_llm or DeepSeekLLM()
+        self.reflect_llm = reflect_llm or DeepSeekLLM()
         self.reflect_prompt = REFLECT_INSTRUCTION
         self.agent_prompt = PREDICT_REFLECT_INSTRUCTION
         self.reflections = []
@@ -101,6 +108,7 @@ class PredictReflectAgent(PredictAgent):
     def run(self, reset=True) -> None:
         if self.is_finished() and not self.is_correct():
             self.reflect()
+            self.step(RunMode.Train)
 
         PredictAgent.run(self, reset=reset)
 
@@ -344,8 +352,10 @@ class PredictReflectAgent(PredictAgent):
         )
         # update the access counter if need to
         self._update_access_counter()
+        print('update access counter completed')
         # brain step
         self.brain.step()
+        print('DEBUG: Agent step completed')
 
     def save_checkpoint(self, path: str, force: bool = False) -> None:
         path = os.path.join(path, self.agent_name)

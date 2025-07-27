@@ -6,9 +6,7 @@ from datetime import date
 from .run_type import RunMode
 from pydantic import BaseModel, Field
 from httpx import HTTPStatusError
-from guardrails.validators import ValidChoices
 from typing import List, Callable, Dict, Union, Any, Tuple
-from .chat import LongerThanContextError
 from .prompts import (
     short_memory_id_desc,
     mid_memory_id_desc,

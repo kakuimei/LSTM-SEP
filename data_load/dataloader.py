@@ -5,15 +5,15 @@ import pandas as pd
 from datetime import datetime, timedelta
 from memory_module.memorydb import BrainDB
 import calendar
-
+from unittest.mock import MagicMock
 
 class DataLoader:
-    def __init__(self, args):
+    def __init__(self, args, brain_db=None):
         self.price_dir = args.price_dir
         self.tweet_dir = args.tweet_dir
         self.seq_len = args.seq_len
         self.summarizer = DeepSeekSummarizer()
-        self.brain_db = BrainDB()
+        self.brain_db = brain_db
 
     def daterange(self, start_date, end_date):
         for n in range(int((end_date - start_date).days)):
@@ -89,9 +89,9 @@ class DataLoader:
                         daily_summary_dict[date_str] = daily_summary
                     else:
                         daily_summary_dict[date_str] = "[Uninformative tweet summary]"
+                    summary_all_parts.append(f"{date_str} Daily: \n{daily_summary}\n\n")
                 else:
                     daily_summary_dict[date_str] = "[No tweets available]"
-                summary_all_parts.append(f"{date_str} Daily: \n{daily_summary}\n\n")
                 
                 # write weekly_summary to long memory
                 if date >= min_date + timedelta(days=6):

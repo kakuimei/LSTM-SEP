@@ -1,10 +1,10 @@
 from peft import (
-    prepare_model_for_int8_training,
     LoraConfig,
     get_peft_model,
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
+from peft.utils import prepare_model_for_kbit_training
 from transformers import LlamaForCausalLM, LlamaTokenizer
 import os
 import sys
@@ -54,7 +54,7 @@ def supervised_finetune(args):
         args.model_path, add_eos_token=True
     )
 
-    model = prepare_model_for_int8_training(model)
+    model = prepare_model_for_kbit_training(model)
 
     config = LoraConfig(
         r=LORA_R,

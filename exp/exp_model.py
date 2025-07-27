@@ -21,12 +21,12 @@ class Exp_Model:
         print("Streaming Train Agents with progress tracking...")
 
         agent_cls = PredictReflectAgent
-        dataloader = self.dataloader.load(flag="train")
+        sample_generator = self.dataloader.load("train")
         agents = []
-        for sample in tqdm(dataloader, desc="Training agents"):
+        for sample in tqdm(sample_generator, desc="Training agents"):
             agent = agent_cls(ticker=sample['ticker'], date=sample['date'], summary=sample['summary'], target=sample['target'], brain_db=self.dataloader.brain_db)
             agent.run()
-            agents.append(agent)
+            # agents.append(agent)
             
             if agent.is_correct():
                 prompt = agent._build_agent_prompt()

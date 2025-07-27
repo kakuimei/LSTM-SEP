@@ -1,0 +1,9 @@
+# Python virtual environments
+.venv/
+sep_venv/
+venv/
+env/
+
+# Python 缓存文件
+__pycache__/
+*.py[cod]

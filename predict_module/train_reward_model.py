@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from datasets import load_dataset
-from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_int8_training
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -120,7 +120,7 @@ def train_reward_model(args):
             trust_remote_code=True,
         )
 
-    model = prepare_model_for_int8_training(model)
+    model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
         task_type=TaskType.SEQ_CLS,
