@@ -7,3 +7,10 @@ env/
 # Python 缓存文件
 __pycache__/
 *.py[cod]
+
+*.txt
+*.log
+
+test_data/
+
+.env
