@@ -1,5 +1,5 @@
 from utils.llm import OpenAILLM
-from utils.prompts import SUMMARIZE_INSTRUCTION, WEEKLY_SUMMARIZE_INSTRUCTION, MONTHLY_SUMMARIZE_INSTRUCTION
+from utils.prompts import SUMMARIZE_INSTRUCTION, WEEKLY_SUMMARIZE_INSTRUCTION, MONTHLY_SUMMARIZE_INSTRUCTION, QUERY_INSTRUCTION
 from utils.fewshots import SUMMARIZE_EXAMPLES, WEEKLY_SUMMARIZE_EXAMPLES, MONTHLY_SUMMARIZE_EXAMPLES
 import tiktoken
 import re
@@ -7,6 +7,7 @@ from utils.llm import DeepSeekLLM
 class DeepSeekSummarizer:
     def __init__(self, model="deepseek-chat"):
         self.llm = DeepSeekLLM(model=model)
+        self.query_prompt = QUERY_INSTRUCTION
         self.summarize_prompt = SUMMARIZE_INSTRUCTION
         self.summarize_examples = SUMMARIZE_EXAMPLES
 
@@ -18,6 +19,24 @@ class DeepSeekSummarizer:
 
         # 使用通用编码器 cl100k_base
         self.enc = tiktoken.get_encoding("cl100k_base")
+
+    def get_query_text(self, ticker, date_str, tweets):
+        if not tweets:
+            return None
+        prompt = self.query_prompt.format(
+            ticker=ticker,
+            date_str=date_str,
+            tweets="\n".join(tweets)
+        )
+        # 保证 token 数不超限制
+        while len(self.enc.encode(prompt)) > 16000:
+            tweets = tweets[:-1]
+            prompt = self.query_prompt.format(
+                ticker=ticker,
+                date_str=date_str,
+                tweets="\n".join(tweets)
+            )
+        return self.llm(prompt)
 
     def get_summary(self, ticker, tweets):
         if not tweets:
@@ -44,7 +63,7 @@ class DeepSeekSummarizer:
                                     ticker = ticker,
                                     week_start = week_start,
                                     week_end = week_end,
-                                    example = self.weekly_summarize_examples,
+                                    examples = self.weekly_summarize_examples,
                                     daily_summaries = raw_weekly_report
                                     )
             summary = self.llm(prompt)
@@ -54,11 +73,11 @@ class DeepSeekSummarizer:
     def get_monthly_summary(self, ticker, month_start, month_end, raw_monthly_report):
         summary = None
         if raw_monthly_report:
-            prompt = self.weekly_summarize_prompt.format(
+            prompt = self.monthly_summarize_prompt.format(
                                     ticker = ticker,
                                     month_start = month_start,
                                     month_end = month_end,
-                                    example = self.monthly_summarize_examples,
+                                    examples = self.monthly_summarize_examples,
                                     weekly_summaries = raw_monthly_report
                                     )
             summary = self.llm(prompt)

@@ -1,3 +1,15 @@
+QUERY_INSTRUCTION = """
+You are writing FAISS search queries to retrieve the most relevant prior memory for stock analysis.
+Constraints:
+- No full sentences; return compact search strings (<= 12 tokens each).
+- Include the ticker {ticker} and the date {date_str}.
+- Cover different intents: earnings/guidance, products, supply chain, regulation/lawsuit, analysts/price targets, partnerships/M&A, and sentiment/buzz.
+- Incorporate salient nouns/hashtags/cashtags from tweets if any.
+Input tweets:
+{tweets}
+Return 6-8 search queries, one per line, no numbering.
+"""
+
 SUMMARIZE_INSTRUCTION = """Given a list of tweets, summarize all key facts regarding {ticker} stock.
 Here are some examples (STRICTLY FOLLOW the format below, do NOT add any introduction, explanation, or bullet styling like "*", "-", or numbering):
 {examples}

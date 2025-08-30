@@ -2,14 +2,16 @@ import os, json
 import numpy as np
 from datetime import datetime, timedelta
 import logging
+from memory_module.memorydb import BrainDB
+from summarize_module.summarizer import DeepSeekSummarizer
 
 class DataLoader:
     def __init__(self, args, brain_db=None, summarizer=None):
         self.price_dir = args.price_dir
         self.tweet_dir = args.tweet_dir
         self.seq_len = args.seq_len
-        self.summarizer = summarizer
-        self.brain_db = brain_db
+        self.summarizer = summarizer if summarizer else DeepSeekSummarizer()
+        self.brain_db = brain_db if brain_db else BrainDB.from_config(args)
 
     def daterange(self, start_date, end_date):
         for n in range(int((end_date - start_date).days)):
@@ -53,12 +55,18 @@ class DataLoader:
             # set up logging for this ticker
             log_filename = self.brain_db.logger.log_filename_template.format(symbol=ticker)
             log_path = os.path.join(self.brain_db.logger.log_dir, log_filename)
-            file_handler = logging.FileHandler(log_path, mode="a")
-            file_handler.setFormatter(logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            ))
-            self.brain_db.logger.addHandler(file_handler)
+
+            # ↓↓↓ 只在还没加过这个文件 handler 的时候再添加（关键一行） ↓↓↓
+            already = any(isinstance(h, logging.FileHandler) and getattr(h, "_log_path", None) == log_path
+                        for h in self.brain_db.logger.handlers)
+            if not already:
+                file_handler = logging.FileHandler(log_path, mode="a")
+                file_handler._log_path = log_path  # 做个标记，便于上面的判断
+                file_handler.setFormatter(logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                ))
+                self.brain_db.logger.addHandler(file_handler)
             print(f"[Info] Loading price data for {ticker}, {len(ordered_price_data)} days from {ordered_price_data[0,0]} to {ordered_price_data[-1,0]}")
             
             date_to_row = {datetime.strptime(row[0], "%Y-%m-%d").date(): row for row in ordered_price_data}
@@ -77,12 +85,9 @@ class DataLoader:
                 # pull tweets for the day
                 date_str = date.strftime("%Y-%m-%d")
                 tweet_data = self.get_tweets(ticker, date_str)
+                query_text = self.summarizer.get_query_text(ticker, date_str, tweet_data)
+
                 if tweet_data:
-
-                    # write tweet_data to short memory
-                    # self.brain_db.add_memory_short(symbol=ticker,date=date,text=tweet_data)
-                    # print(f"[Info] Added tweet data to short memory for {ticker} on {date_str}")
-
                     # write daily_summary to short memory
                     daily_summary = self.summarizer.get_summary(ticker, tweet_data)
                     if daily_summary and self.summarizer.is_informative(daily_summary):
@@ -144,10 +149,20 @@ class DataLoader:
                 else:
                     target = None
 
+                if (date - min_d).days % 7 == 0:
+                    self.brain_db.step()
+
+                long_ctx,  _ = self.brain_db.query_long(query_text, 2, ticker)
+                mid_ctx,   _ = self.brain_db.query_mid(query_text, 3, ticker)
+                short_ctx, _ = self.brain_db.query_short(query_text, 5, ticker)
+
                 if summary_all_parts:
                     yield {
                         'ticker': ticker,
                         'date': date_str,
                         'summary': "\n\n".join(summary_all_parts),
-                        'target': target
+                        'target': target,
+                        'ctx_short': short_ctx,
+                        'ctx_mid':   mid_ctx,
+                        'ctx_long':  long_ctx,
                     }
