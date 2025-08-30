@@ -161,33 +161,76 @@ Explanation: Apple reported disappointing Q2 2016 earnings, missing both profit 
 
 WEEKLY_SUMMARIZE_EXAMPLES = """
 Daily Summaries:
-2025-07-14: Strong positive sentiment around Q2 earnings beat; volume spiked afterhours.  
-2025-07-15: [No tweet data]  
-2025-07-16: Discussion of upcoming product launch drove mixed sentiment.  
-2025-07-17: Fear over regulatory probe; negative tweets dominated.  
-2025-07-18: Relief rally after Fed comments; sentiment turned positive.  
-2025-07-19: Flat trading day; few actionable tweets.  
-2025-07-20: Bullish chatter on breakout above key resistance.
+2025-07-14: Apple ($AAPL) previewed on-device GenAI features for iPhone and iPad; developer docs highlight private inference with improved Neural Engine throughput.
+2025-07-15: Supply chain checks pointed to a modest iPhone build-plan trim for Q3; services (App Store, iCloud, Apple Music) tracking mid-teens % growth.
+2025-07-16: Reported expanded India retail footprint and local manufacturing incentives; analysts said mix shift may lift gross margin by ~30–50 bps.
+2025-07-17: Bloomberg noted AR/VR content deals progressing; select studios piloting interactive sports features for Vision Pro.
+2025-07-18: Apple authorized an incremental $30B in buybacks (unconfirmed by company); buy-side chatter expects pace similar to last year.
+2025-07-19: Regulatory headlines: EU DMA compliance update; Apple to open NFC and default app settings more broadly in select markets.
+2025-07-20: Stock closed +2.1% W/W; options flow skewed to calls into late August on AI feature rollout expectations.
 
 Weekly Report:
-1. **Earnings Beat Rally (07/14):** The Q2 earnings surprise triggered the strongest positive sentiment of the week, with after-hours volume surging by 20%.  
-2. **Regulatory Concern Mid-Week (07/17):** Negative headlines about an investigation caused a temporary dip in sentiment, erasing ~3% of the week’s gains.  
-3. **Fed-Driven Relief (07/18):** Comments from the Fed Chair soothed markets, shifting tone back to bullish ahead of the weekend.  
-4. **Product Launch Anticipation (07/16):** Mixed reactions suggest traders are cautiously optimistic about the upcoming launch.  
-5. **Actionable Insight:** With sentiment now firmly back in positive territory and resistance broken on 07/20, a short-term long position could capitalize on continuing momentum.
+1. Apple advanced its on-device GenAI roadmap, emphasizing private inference and improved Neural Engine performance, which could catalyze an iPhone upgrade cycle and deepen ecosystem lock-in.
+2. Despite a small iPhone build-plan trim, Services continued to track mid-teens growth, supporting mix and margin resilience.
+3. India expansion (retail + manufacturing) remained a structural tailwind, with potential 30–50 bps gross-margin lift from localization and mix benefits.
+4. Vision Pro content momentum improved, with early sports/interactive pilots suggesting a clearer path to mainstream engagement.
+5. Capital returns stayed in focus; an additional buyback authorization (market chatter) reinforced EPS support even under flattish units.
+6. DMA-driven changes (NFC access, default apps) signaled incremental platform openness while preserving core monetization rails.
+7. Positioning and flows turned constructive into late August, with call skew reflecting investor appetite for the GenAI narrative.
+8. Net takeaway: Services + GenAI + capital returns offset near-term hardware volatility, leaving the multi-year thesis intact.
+
+Daily Summaries:
+2025-05-05: NVIDIA ($NVDA) data-center demand remained robust; hyperscalers signaling continued GPU allocations into CY26.
+2025-05-06: New accelerator SKU chatter (H-next) with improved memory bandwidth; supply chain suggests staged ramp beginning Q4.
+2025-05-07: Partner updates: multiple OEMs unveiled liquid-cooling reference designs to ease thermal constraints in dense racks.
+2025-05-08: Export controls: reports of tightened reviews for certain shipments; management reiterated compliance while prioritizing alternative configurations.
+2025-05-09: CUDA software stack saw updates for inference latency and multi-tenant scheduling; early adopters cite TCO benefits.
+2025-05-10: Competition watch: rival announced roadmap slippage on a key AI accelerator; buy-side reads modestly favorable for NVDA share.
+2025-05-11: Stock finished +3.8% W/W; breadth broad, with semicap peers also higher on AI capex confidence.
+
+Weekly Report:
+1. Hyperscaler signals supported a durable multi-year accelerator cycle, with allocations already penciled into CY26, sustaining revenue visibility.
+2. Next-gen SKU momentum (higher bandwidth, platform efficiencies) positioned NVIDIA to defend performance leadership and ASPs into the upgrade cycle.
+3. OEM liquid-cooling designs reduced thermal bottlenecks for dense deployments, unlocking higher rack-level performance and power efficiency.
+4. While export-control scrutiny persisted, NVIDIA’s compliance posture and alternative configurations mitigated shipment risk to targeted regions.
+5. CUDA stack enhancements (latency, multi-tenant scheduling) reinforced the software moat, improving utilization and customer-perceived TCO.
+6. Competitive slippage on a peer accelerator modestly de-risked share erosion through the next refresh window.
+7. AI capex confidence broadened to semicap suppliers, echoing a healthier supply chain backdrop for capacity adds.
+8. Net: Leadership in silicon + systems + software continued to compound, with visibility and ecosystem depth offsetting policy and supply variables.
 """
 
 MONTHLY_SUMMARIZE_EXAMPLES = """
 Weekly Summaries:
-Week ending 2025-06-07: Continued bullish sentiment after Fed minutes; tech stocks led gains.  
-Week ending 2025-06-14: Profit-taking and rotation into defensive sectors; slight pullback.  
-Week ending 2025-06-21: Mixed reactions to GDP data; consumer staples outperformed.  
-Week ending 2025-06-28: Strong rally on hawkish Fed pause signal; broad market up 2.5%.  
+Week of 2025-08-04: Apple previewed on-device GenAI features for iPhone/iPad; Services tracked mid-teens % growth; early Vision Pro sports/interactive pilots expanded; EU DMA compliance update (NFC/default apps) progressed; stock +1.8% W/W on AI feature expectations.
+Week of 2025-08-11: Supply chain checks indicated a modest iPhone build-plan trim; India retail and manufacturing footprint expanded with incentives; App Store pricing tests in select regions; analysts raised PTs citing Services durability; options flow skewed to calls into late Aug.
+Week of 2025-08-18: Event chatter for September hardware; Vision Pro content pipeline added two major studio partners; localized manufacturing suggested 30–50 bps GM tailwind; regulatory noise in the UK app distribution framework; shares +2.3% W/W.
+Week of 2025-08-25: FQ results beat on Services; iPhone units mixed with China softness; buyback cadence reaffirmed; AR/VR content momentum noted; DMA timelines clarified for EU rollouts; stock +3.1% on print.
 
 Monthly Report:
-1. **Fed-Driven Volatility:** Early-month Fed minutes triggered a sharp rally, but mid-month profit-taking led to a modest pullback before another leg up as the Fed indicated a pause.  
-2. **Sector Rotation:** Investors rotated from growth into defensives mid-June, with consumer staples and utilities outperforming.  
-3. **Economic Data Impact:** Mixed GDP and inflation readings created choppy sessions, underscoring sensitivity to macro releases.  
-4. **End-of-Month Rally:** Broad-based strength in the last week pushed indices to monthly highs, driven by tech stocks regaining momentum.  
-5. **Strategic Insight:** With Fed likely on hold, consider overweighting quality growth stocks early next month, while hedging with defensive names in event of data misses.
+1. Services remained the centerpiece—with mid-teens % growth and reinforced monetization rails—offsetting iPhone unit variability and underpinning gross-margin resilience.
+2. On-device GenAI features matured meaningfully, pointing to a potential upgrade catalyst and deepening ecosystem stickiness through private inference and tighter OS-level integration.
+3. Vision Pro progressed from hardware novelty to platform narrative as sports/interactive pilots broadened and studio participation increased, mapping a clearer path to mainstream engagement.
+4. India continued to evolve from opportunity to execution, with retail expansion and localized manufacturing likely to contribute a 30–50 bps gross-margin uplift over time.
+5. EU DMA compliance advanced (NFC access, default app settings) without materially impairing Services take-rate in the near term, suggesting managed openness rather than structural monetization risk.
+6. Supply chain signals (modest build-plan trim) were balanced by mix/ASP levers and Services growth, buffering near-term revenue variability.
+7. Capital returns stayed supportive; reaffirmed buyback cadence and balance-sheet capacity provided EPS stability amid hardware cyclicality.
+8. Investor positioning leaned more constructive into September’s event; call skew and post-earnings strength reflected rising confidence in the GenAI + Services multi-year thesis.
+9. Net: the month consolidated Apple’s shift toward software/services-led durability while preserving optionality on hardware cycles and spatial computing.
+
+Weekly Summaries:
+Week of 2025-05-05: Hyperscalers signaled continued GPU allocations into CY26; H-next SKU chatter (higher memory bandwidth) surfaced; shares +1.6% W/W.
+Week of 2025-05-12: OEM partners unveiled liquid-cooling reference designs to unlock denser racks; export-control scrutiny tightened for select regions; CUDA updates reduced inference latency.
+Week of 2025-05-19: Rival accelerator roadmap slipped; semicap peers rallied on AI capex confidence; early talks of staged H-next ramp in Q4.
+Week of 2025-05-26: Earnings beat with strong DC mix; supply commentary emphasized gradual normalization; ecosystem highlighted multi-tenant scheduling and TCO gains; stock +3.8% W/W.
+
+Monthly Report:
+1. Demand visibility extended into CY26 as hyperscalers pre-allocated GPU capacity, anchoring a multi-year accelerator cycle with unusually long order books.
+2. Next-gen SKU momentum (higher bandwidth, improved interconnect) positioned NVIDIA to defend performance leadership and sustain premium ASPs through the upcoming refresh.
+3. Thermal bottlenecks eased with broader liquid-cooling adoption, enabling denser rack deployments and better rack-level perf/W, a key enabler for total-cost economics.
+4. CUDA stack enhancements (latency cuts, multi-tenant scheduling) deepened the software moat, boosting utilization and lowering effective TCO for enterprise inference workloads.
+5. Export-control scrutiny persisted, but alternative configurations and diversified regional demand tempered shipment risk to restricted geographies.
+6. Competitive slippage on a rival accelerator reduced near-term share erosion risk, extending NVIDIA’s window to entrench platform leadership.
+7. Semicap strength echoed durable AI capex, signaling healthier supply chain pathways for capacity adds and advanced packaging throughput.
+8. Earnings reinforced the DC-led mix shift; commentary suggested supply normalization pacing with demand, prioritizing high-value allocations.
+9. Net: Silicon + systems + software integration compounded advantages, with visibility and ecosystem depth outweighing policy and supply variables in the monthly arc.
 """

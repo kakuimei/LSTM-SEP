@@ -44,6 +44,7 @@ class DeepSeekSummarizer:
                                     ticker = ticker,
                                     week_start = week_start,
                                     week_end = week_end,
+                                    example = self.weekly_summarize_examples,
                                     daily_summaries = raw_weekly_report
                                     )
             summary = self.llm(prompt)
@@ -57,6 +58,7 @@ class DeepSeekSummarizer:
                                     ticker = ticker,
                                     month_start = month_start,
                                     month_end = month_end,
+                                    example = self.monthly_summarize_examples,
                                     weekly_summaries = raw_monthly_report
                                     )
             summary = self.llm(prompt)
@@ -66,6 +68,7 @@ class DeepSeekSummarizer:
     def is_informative(self, summary):
         neg = r'.*[nN]o.*information.*|.*[nN]o.*facts.*|.*[nN]o.*mention.*|.*[nN]o.*tweets.*|.*do not contain.*'
         return not re.match(neg, summary)
+
 class Summarizer:
     def __init__(self):
         self.summarize_prompt = SUMMARIZE_INSTRUCTION

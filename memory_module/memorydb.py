@@ -495,16 +495,15 @@ class BrainDB:
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        file_handler = logging.FileHandler(
-            os.path.join(
-                "data",
-                "04_model_output_log",
-                f'{config["general"]["trading_symbol"]}_run.log',
-            ),
-            mode="a",
-        )
-        file_handler.setFormatter(logging_formatter)
-        logger.addHandler(file_handler)
+
+        log_dir = config["general"]["log_dir"]
+        log_filename_template = config["general"]["log_filename"]
+        os.makedirs(log_dir, exist_ok=True)
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        logger.log_dir = log_dir
+        logger.log_filename_template = log_filename_template
+
         emb_config = config["agent"]["agent_1"]["embedding"]["detail"]
         # memory layers
         short_term_memory = MemoryDB(

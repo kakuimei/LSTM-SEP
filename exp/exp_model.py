@@ -9,22 +9,23 @@ from transformers import LlamaTokenizer, pipeline #, AutoModelForCausalLM, BitsA
 from trl import AutoModelForCausalLMWithValueHead
 import os, json
 from tqdm import tqdm
-
+from memory_module.memorydb import BrainDB
+from utils.config import args_to_config
+from summarize_module.summarizer import DeepSeekSummarizer
 
 class Exp_Model:
     def __init__(self, args):
         self.args = args
-        self.dataloader = DataLoader(args)
-
+        self.brain_db =  BrainDB.from_config(args_to_config(args))
+        self.dataloader = DataLoader(args, brain_db=self.brain_db, summarizer=DeepSeekSummarizer())
 
     def train(self):
-        print("Streaming Train Agents with progress tracking...")
-
+        print("\n[Info] Streaming Train Agents with progress tracking...")
         agent_cls = PredictReflectAgent
         sample_generator = self.dataloader.load("train")
         agents = []
-        for sample in tqdm(sample_generator, desc="Training agents"):
-            agent = agent_cls(ticker=sample['ticker'], date=sample['date'], summary=sample['summary'], target=sample['target'], brain_db=self.dataloader.brain_db)
+        for sample in sample_generator:
+            agent = agent_cls(ticker=sample['ticker'], date=sample['date'], summary=sample['summary'], target=sample['target'], brain_db=self.brain_db)
             agent.run()
             # agents.append(agent)
             

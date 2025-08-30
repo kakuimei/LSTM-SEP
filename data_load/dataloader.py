@@ -1,18 +1,14 @@
-from summarize_module.summarizer import DeepSeekSummarizer
 import os, json
 import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
-from memory_module.memorydb import BrainDB
-import calendar
-from unittest.mock import MagicMock
+import logging
 
 class DataLoader:
-    def __init__(self, args, brain_db=None):
+    def __init__(self, args, brain_db=None, summarizer=None):
         self.price_dir = args.price_dir
         self.tweet_dir = args.tweet_dir
         self.seq_len = args.seq_len
-        self.summarizer = DeepSeekSummarizer()
+        self.summarizer = summarizer
         self.brain_db = brain_db
 
     def daterange(self, start_date, end_date):
@@ -33,91 +29,104 @@ class DataLoader:
     def get_tweets(self, ticker, date_str):
         tweets = []
         tweet_path = os.path.join(self.tweet_dir, ticker, date_str)
-
         if os.path.exists(tweet_path):
-            with open(tweet_path) as f:
-                lines = f.readlines()
-                for line in lines:
+            with open(tweet_path, encoding="utf-8") as f:
+                for line in f:
                     tweet_obj = json.loads(line)
-                    tweets.append(tweet_obj['text'])
-        return tweets
+                    text = tweet_obj.get("text", "")
+                    if isinstance(text, list):
+                        text = " ".join(map(str, text))
+                    text = text.strip()
+                    if text:
+                        tweets.append(text)
+        else:
+            print(f"[Info] No tweets found for {ticker} on {date_str}")
+        return "\n".join(tweets) if tweets else ""
 
 
     def load(self, flag):
-
         for file in os.listdir(self.price_dir):
             price_path = os.path.join(self.price_dir, file)
             ordered_price_data = np.flip(np.genfromtxt(price_path, dtype=str, skip_header=False), 0)
             ticker = file[:-4]
 
-            # Get the date range
-            date_to_row = {
-                datetime.strptime(row[0], "%Y-%m-%d").date(): row
-                for row in ordered_price_data
-            }
-            available_dates = set(date_to_row.keys())
+            # set up logging for this ticker
+            log_filename = self.brain_db.logger.log_filename_template.format(symbol=ticker)
+            log_path = os.path.join(self.brain_db.logger.log_dir, log_filename)
+            file_handler = logging.FileHandler(log_path, mode="a")
+            file_handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ))
+            self.brain_db.logger.addHandler(file_handler)
+            print(f"[Info] Loading price data for {ticker}, {len(ordered_price_data)} days from {ordered_price_data[0,0]} to {ordered_price_data[-1,0]}")
+            
+            date_to_row = {datetime.strptime(row[0], "%Y-%m-%d").date(): row for row in ordered_price_data}
             split_idx = round(len(ordered_price_data) * 0.8)
             split_date = datetime.strptime(ordered_price_data[split_idx, 0], "%Y-%m-%d").date()
-            min_date = min(available_dates)
-            max_date = max(available_dates)
-            full_dates = []
-            cur = min_date
-            while cur <= max_date:
-                full_dates.append(cur)
-                cur += timedelta(days=1)
-            if flag == "train":
-                data_range = [d for d in full_dates if d < split_date]
-            else:
-                data_range = [d for d in full_dates if d >= split_date]
-            
-            daily_summary_dict = {}
-            for date in data_range:
+            min_d, max_d = min(date_to_row), max(date_to_row)
+            full_dates = [min_d + timedelta(days=i) for i in range((max_d - min_d).days + 1)]
+            keep = (lambda d: d < split_date) if flag == "train" else (lambda d: d >= split_date)
+            data_range = [d for d in full_dates if keep(d)]
 
-                # get tweet data
-                date_str = date.strftime("%Y-%m-%d")
+            print(f"[Info] Processing train data for {ticker}, {len(data_range)} days from {data_range[0]} to {data_range[-1]}....")
+            daily_summary_dict = {}
+            weekly_summary_dict = {}
+            for date in data_range:
                 summary_all_parts = []
+                # pull tweets for the day
+                date_str = date.strftime("%Y-%m-%d")
                 tweet_data = self.get_tweets(ticker, date_str)
                 if tweet_data:
 
-                    # write tweet to short memory
-                    self.brain_db.add_memory_short(symbol=ticker,date=date,text=tweet_data)
+                    # write tweet_data to short memory
+                    # self.brain_db.add_memory_short(symbol=ticker,date=date,text=tweet_data)
+                    # print(f"[Info] Added tweet data to short memory for {ticker} on {date_str}")
 
-                    # write daily_summary to mid memory
+                    # write daily_summary to short memory
                     daily_summary = self.summarizer.get_summary(ticker, tweet_data)
                     if daily_summary and self.summarizer.is_informative(daily_summary):
-                        self.brain_db.add_memory_mid(symbol=ticker,date=date,text=daily_summary)
+                        self.brain_db.add_memory_short(symbol=ticker,date=date,text=daily_summary)
+                        print(f"[Info] Added daily summary to mid memory for {ticker} on {date_str}")
                         daily_summary_dict[date_str] = daily_summary
                     else:
                         daily_summary_dict[date_str] = "[Uninformative tweet summary]"
+                        print(f"[Info] Uninformative daily summary for {ticker} on {date_str}")
                     summary_all_parts.append(f"{date_str} Daily: \n{daily_summary}\n\n")
                 else:
                     daily_summary_dict[date_str] = "[No tweets available]"
+                    print(f"[Info] No tweets available for {ticker} on {date_str}")
                 
                 # write weekly_summary to long memory
-                if date >= min_date + timedelta(days=6):
-
+                if date >= min_d + timedelta(days=6):
                     week_start = date - timedelta(days=6)
                     week_dates = [(week_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
                     week_start_str = week_start.strftime("%Y-%m-%d")
                     week_end_str = date.strftime("%Y-%m-%d")
-
-                    weekly_lines = [f"{d}: {daily_summary_dict.get(d, '[No data]')}" for d in week_dates]
+                    weekly_lines = [f"{d}: {daily_summary_dict.get(d,'[No data]')}" for d in week_dates]
                     raw_weekly = "\n".join(weekly_lines)
-
                     weekly_summary = self.summarizer.get_weekly_summary(
                         ticker=ticker, week_start=week_start_str, week_end=week_end_str, raw_weekly_report=raw_weekly
                         )
-                    self.brain_db.add_memory_long(symbol=ticker, date=week_end_str, text=weekly_summary)
-
+                    if weekly_summary and self.summarizer.is_informative(weekly_summary):
+                        self.brain_db.add_memory_mid(symbol=ticker, date=week_end_str, text=weekly_summary)
+                        print(f"[Info] Added weekly summary to long memory for {ticker} on {week_end_str}")
+                        weekly_summary_dict[week_end_str] = weekly_summary
+                    else:
+                        weekly_summary_dict[week_end_str] = "[Uninformative weekly summary]"
+                        print(f"[Info] Uninformative weekly summary for {ticker} on {week_end_str}")
                     summary_all_parts.append(f"Week {week_start_str} to {week_end_str} Summary: \n{weekly_summary}\n\n")
                 
                 # write monthly_summary to long memory
-                if date >= min_date + timedelta(days=29):
+                if date >= min_d + timedelta(days=29):
                     month_start = date - timedelta(days=29)
-                    month_dates = [(month_start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(30)]
                     month_start_str = month_start.strftime("%Y-%m-%d")
                     month_end_str = date.strftime("%Y-%m-%d")
-                    monthly_lines = [f"{d}: {daily_summary_dict.get(d, '[No data]')}" for d in month_dates]
+                    monthly_lines = []
+                    for i in range(0, 22, 7):
+                        week_end_date = (date - timedelta(days=i)).strftime("%Y-%m-%d")
+                        summary_text = weekly_summary_dict.get(week_end_date, "[No weekly summary]")
+                        monthly_lines.append(f"Week of {week_end_date}: {summary_text}")
                     raw_monthly = "\n".join(monthly_lines)
                     monthly_summary = self.summarizer.get_monthly_summary(
                         ticker=ticker,
@@ -127,15 +136,13 @@ class DataLoader:
                     )
                     self.brain_db.add_memory_long(symbol=ticker, date=month_end_str, text=monthly_summary)
                     summary_all_parts.append(f"Month {month_start_str} to {month_end_str} Summary: \n{monthly_summary}\n\n")
+                    print(f"[Info] Added monthly summary to long memory for {ticker} on {month_end_str}")
                 
                 # get the target sentiment
-                if date in available_dates:
+                if date in date_to_row:
                     target = self.get_sentiment(date_str, price_path)
                 else:
                     target = None
-            
-                # if daily_summary and daily_summary is not None and daily_summary != "" and self.summarizer.is_informative(summary):
-                #     summary_all = summary_all + date_str + "\n" + daily_summary + "\n\n"
 
                 if summary_all_parts:
                     yield {

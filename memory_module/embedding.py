@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import List, Union
-from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 
 class OpenAILongerThanContextEmb:

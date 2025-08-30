@@ -3,6 +3,7 @@ import argparse
 import torch
 import numpy as np
 import random
+import os
 
 fix_seed = 100
 random.seed(fix_seed)
@@ -11,9 +12,52 @@ np.random.seed(fix_seed)
 
 parser = argparse.ArgumentParser(description='generating')
 
+# general
+parser.add_argument("--agent_name", type=str, default="brain_agent")
+parser.add_argument("--log_dir", type=str, default="test_data/brain_output_log")
+parser.add_argument("--log_filename", type=str, default="{symbol}_run.log")
+
+# embedding
+parser.add_argument("--embedding_model", type=str, default="text-embedding-ada-002")
+parser.add_argument("--chunk_size", type=int, default=5000)
+parser.add_argument("--verbose", action="store_true")   # bool 用 flag 更直观
+parser.add_argument("--openai_api_key", type=str, default=os.environ.get("OPENAI_API_KEY"))
+
+# short memory
+parser.add_argument("--short_jump_threshold_upper", type=float, default=70.0)
+parser.add_argument("--short_importance_score_initialization", type=str, default="sample")
+parser.add_argument("--short_recency_factor", type=float, default=10.0)
+parser.add_argument("--short_importance_factor", type=float, default=0.98)
+parser.add_argument("--short_recency_threshold", type=float, default=0.01)
+parser.add_argument("--short_importance_threshold", type=float, default=10.0)
+
+# mid memory
+parser.add_argument("--mid_jump_threshold_upper", type=float, default=85.0)
+parser.add_argument("--mid_jump_threshold_lower", type=float, default=50.0)
+parser.add_argument("--mid_importance_score_initialization", type=str, default="sample")
+parser.add_argument("--mid_recency_factor", type=float, default=12.0)
+parser.add_argument("--mid_importance_factor", type=float, default=0.97)
+parser.add_argument("--mid_recency_threshold", type=float, default=0.02)
+parser.add_argument("--mid_importance_threshold", type=float, default=20.0)
+
+# long memory
+parser.add_argument("--long_jump_threshold_lower", type=float, default=70.0)
+parser.add_argument("--long_importance_score_initialization", type=str, default="sample")
+parser.add_argument("--long_recency_factor", type=float, default=15.0)
+parser.add_argument("--long_importance_factor", type=float, default=0.95)
+parser.add_argument("--long_recency_threshold", type=float, default=0.03)
+parser.add_argument("--long_importance_threshold", type=float, default=30.0)
+
+# reflection
+parser.add_argument("--reflection_importance_score_initialization", type=str, default="sample")
+parser.add_argument("--reflection_recency_factor", type=float, default=8.0)
+parser.add_argument("--reflection_importance_factor", type=float, default=0.96)
+parser.add_argument("--reflection_recency_threshold", type=float, default=0.01)
+parser.add_argument("--reflection_importance_threshold", type=float, default=15.0)
+
 # load data
-parser.add_argument("--price_dir", type=str, default="data/price/preprocessed/")
-parser.add_argument("--tweet_dir", type=str, default="data/tweet/raw/")
+parser.add_argument("--price_dir", type=str, default="test_data/price/")
+parser.add_argument("--tweet_dir", type=str, default="test_data/tweet/")
 parser.add_argument("--seq_len", type=int, default=5)
 
 # supervised finetuning
