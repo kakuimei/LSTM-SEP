@@ -92,12 +92,13 @@ class DataLoader:
                     daily_summary = self.summarizer.get_summary(ticker, tweet_data)
                     if daily_summary and self.summarizer.is_informative(daily_summary):
                         self.brain_db.add_memory_short(symbol=ticker,date=date,text=daily_summary)
-                        print(f"[Info] Added daily summary to mid memory for {ticker} on {date_str}")
+                        print(f"[Info] Added daily summary to short memory for {ticker} on {date_str}")
                         daily_summary_dict[date_str] = daily_summary
                     else:
                         daily_summary_dict[date_str] = "[Uninformative tweet summary]"
                         print(f"[Info] Uninformative daily summary for {ticker} on {date_str}")
-                    summary_all_parts.append(f"{date_str} Daily: \n{daily_summary}\n\n")
+                    short_ctx, _ = self.brain_db.query_short(query_text, 5, ticker)
+                    summary_all_parts.append(f"{date_str} Daily: \n{short_ctx}\n\n")
                 else:
                     daily_summary_dict[date_str] = "[No tweets available]"
                     print(f"[Info] No tweets available for {ticker} on {date_str}")
@@ -115,12 +116,13 @@ class DataLoader:
                         )
                     if weekly_summary and self.summarizer.is_informative(weekly_summary):
                         self.brain_db.add_memory_mid(symbol=ticker, date=week_end_str, text=weekly_summary)
-                        print(f"[Info] Added weekly summary to long memory for {ticker} on {week_end_str}")
+                        print(f"[Info] Added weekly summary to mid memory for {ticker} on {week_end_str}")
                         weekly_summary_dict[week_end_str] = weekly_summary
                     else:
                         weekly_summary_dict[week_end_str] = "[Uninformative weekly summary]"
                         print(f"[Info] Uninformative weekly summary for {ticker} on {week_end_str}")
-                    summary_all_parts.append(f"Week {week_start_str} to {week_end_str} Summary: \n{weekly_summary}\n\n")
+                    mid_ctx,   _ = self.brain_db.query_mid(query_text, 1, ticker)
+                    summary_all_parts.append(f"Week {week_start_str} to {week_end_str} Summary: \n{mid_ctx}\n\n")
                 
                 # write monthly_summary to long memory
                 if date >= min_d + timedelta(days=29):
@@ -140,8 +142,9 @@ class DataLoader:
                         raw_monthly_report=raw_monthly,
                     )
                     self.brain_db.add_memory_long(symbol=ticker, date=month_end_str, text=monthly_summary)
-                    summary_all_parts.append(f"Month {month_start_str} to {month_end_str} Summary: \n{monthly_summary}\n\n")
                     print(f"[Info] Added monthly summary to long memory for {ticker} on {month_end_str}")
+                    long_ctx,  _ = self.brain_db.query_long(query_text, 1, ticker)
+                    summary_all_parts.append(f"Month {month_start_str} to {month_end_str} Summary: \n{long_ctx}\n\n")
                 
                 # get the target sentiment
                 if date in date_to_row:
@@ -151,18 +154,12 @@ class DataLoader:
 
                 if (date - min_d).days % 7 == 0:
                     self.brain_db.step()
+            
 
-                long_ctx,  _ = self.brain_db.query_long(query_text, 2, ticker)
-                mid_ctx,   _ = self.brain_db.query_mid(query_text, 3, ticker)
-                short_ctx, _ = self.brain_db.query_short(query_text, 5, ticker)
-
-                if summary_all_parts:
+                if summary_all_parts and target is not None:
                     yield {
                         'ticker': ticker,
                         'date': date_str,
                         'summary': "\n\n".join(summary_all_parts),
-                        'target': target,
-                        'ctx_short': short_ctx,
-                        'ctx_mid':   mid_ctx,
-                        'ctx_long':  long_ctx,
+                        'target': target
                     }

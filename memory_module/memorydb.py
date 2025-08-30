@@ -147,6 +147,7 @@ class MemoryDB:  # can possibly take multiple symbols
         top_k = min(top_k, max_len)
         cur_index = self.universe[symbol]["index"]
         emb = self.emb_func(query_text)
+        faiss.normalize_L2(emb)
         # temp dict ranking
         temp_text_list = []
         temp_score = []
@@ -173,7 +174,7 @@ class MemoryDB:  # can possibly take multiple symbols
                 )
             )
         # top 5 partial compound score: part 2 search
-        p2_ids = [self.universe[symbol]["score_memory"][i]["id"] for i in range(top_k)]
+        p2_ids = [rec["id"] for rec in self.universe[symbol]["score_memory"][-top_k:]]
         temp_arrays = [cur_index.reconstruct(i) for i in p2_ids]
         p2_emb = np.vstack(temp_arrays)
         temp_index = faiss.IndexFlatIP(self.emb_dim)
@@ -199,20 +200,23 @@ class MemoryDB:  # can possibly take multiple symbols
                 )
             )
         # rank sort
-        score_rank = np.argsort(temp_score)[::-1][:top_k]
-        # filter unique list
+        score_rank = np.argsort(temp_score)[::-1]  # 先按综合分降序排
         temp_ret_text_list = [temp_text_list[i] for i in score_rank]
         temp_ret_date_list = [temp_date_list[i] for i in score_rank]
         temp_ret_ids = [temp_ids[i] for i in score_rank]
         ret_text_list = []
         ret_date_list = []
         ret_ids = []
-        _, unique_index = np.unique(temp_ret_ids, return_index=True)
-        unique_index = unique_index.tolist()
-        for i in unique_index:
+        seen = set()
+        for i in range(len(temp_ret_ids)):
+            if temp_ret_ids[i] in seen:
+                continue
+            seen.add(temp_ret_ids[i])
             ret_text_list.append(temp_ret_text_list[i])
             ret_date_list.append(temp_ret_date_list[i])
             ret_ids.append(temp_ret_ids[i])
+            if len(ret_ids) == top_k:  # 控制最多 top_k
+                break
 
         return ret_text_list, ret_ids
 

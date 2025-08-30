@@ -14,3 +14,4 @@ __pycache__/
 test_data/
 
 .env
+.ai-navigator/

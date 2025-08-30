@@ -62,13 +62,15 @@ parser.add_argument("--seq_len", type=int, default=5)
 
 # supervised finetuning
 parser.add_argument("--wandb", action="store_true", default=False)
-parser.add_argument("--data_path", type=str, default="./data/merge_sample.json")
+parser.add_argument("--sft_data_path", type=str, default="./tets_data/sft_samples.json")
 parser.add_argument("--output_path", type=str, default="./saved_models/lora-Vicuna")
 parser.add_argument("--model_path", type=str, default="lmsys/vicuna-7b-v1.5-16k")
 parser.add_argument("--eval_steps", type=int, default=200)
 parser.add_argument("--save_steps", type=int, default=200)
 parser.add_argument("--resume_from_supervised_checkpoint", type=str, default=None)
 parser.add_argument("--ignore_data_skip", type=str, default="False")
+
+parser.add_argument("--grpo_data_path", type=str, default="./tets_data/grpo_samples.json")
 
 # training reward model
 parser.add_argument("--num_reflect_trials", type=int, default=2)

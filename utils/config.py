@@ -1,3 +1,5 @@
+import os, json
+
 # utils/config.py 之类
 def args_to_config(args):
     return {
@@ -67,3 +69,34 @@ def args_to_config(args):
             },
         },
     }
+
+
+def load_existing_keys(jsonl_path):
+    """从已存在的 jsonl 文件中读取所有 (ticker|date) 唯一键"""
+    keys = set()
+    if not os.path.exists(jsonl_path):
+        return keys
+    with open(jsonl_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                meta = obj.get("meta", {})
+                k = f"{meta.get('ticker','')}|{meta.get('date','')}"
+                if "|" in k.strip("|"):
+                    keys.add(k)
+            except Exception:
+                # 如果存在脏行，直接跳过，避免中断
+                continue
+    return keys
+
+def append_jsonl_once(jsonl_path, record, key, seen_keys):
+    """仅当 key 未出现过时追加写入，并将 key 加入 seen_keys"""
+    if key in seen_keys:
+        return False
+    with open(jsonl_path, "a") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    seen_keys.add(key)
+    return True

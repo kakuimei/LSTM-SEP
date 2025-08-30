@@ -1,3 +1,20 @@
+REFLECTION_QUERY_INSTRUCTION = """
+You are drafting FAISS-style search snippets to retrieve prior reflections that can prevent repeating the same mistake for {ticker} on {date_str}.
+
+Context:
+{scratchpad}
+
+Output rules:
+- Return 6–8 lines, each a compact keyword string (<= 12 tokens).
+- No full sentences. No punctuation except spaces and #/$.
+- Each line MUST include: {ticker} and {date_str}.
+- Cover multiple intents across the lines: supply chain; earnings/guidance; products/launch; regulation/lawsuit; analysts/price targets; partnerships/M&A; sentiment/flows.
+- Prefer salient entities/phrases from the facts (e.g., Foxconn, guidance cut, options flow).
+- Include 1–2 lines that encode the label mismatch (e.g., "negative vs positive", "misread premarket drop").
+
+Return ONLY the lines, one per line, no numbering or extra text.
+"""
+
 QUERY_INSTRUCTION = """
 You are writing FAISS search queries to retrieve the most relevant prior memory for stock analysis.
 Constraints:
@@ -34,9 +51,17 @@ Facts:
 Price Movement:"""
 
 
-PREDICT_REFLECT_INSTRUCTION = """Given a list of facts, estimate their overall impact on the price movement of {ticker} stock. Give your response in this format:
-(1) Price Movement, which should be either Positive or Negative.
-(2) Explanation, which should be in a single, short paragraph.
+PREDICT_REFLECT_INSTRUCTION = """Given a list of facts, estimate their overall impact on the price movement of {ticker} stock. You MUST follow this exact output format:
+
+Line 1 → Price Movement: Positive | Negative
+Line 2 → Explanation: <one short paragraph. No numbering. Do not prefix with (1) or (2).>
+
+Rules:
+- Output EXACTLY two lines.
+- Do NOT include any numbering or parentheses like "(1)" or "(2)" anywhere.
+- The first line must start with: "Price Movement: "
+- The second line must start with: "Explanation: "
+
 Here are some examples:
 {examples}
 (END OF EXAMPLES)
@@ -52,7 +77,14 @@ Price Movement:"""
 REFLECTION_HEADER = 'You have attempted to tackle the following task before and failed. The following reflection(s) give a plan to avoid failing to answer the question in the same way you did previously. Use them to improve your strategy of correctly tackling the given task.\n'
 
 
-REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self refection. You will be given a previous reasoning trial in which you were given access to a list of facts to assess their overall impact on the price movement of {ticker} stock. You were unsuccessful in tackling the task because you gave the wrong price movement. In a few sentences, Diagnose a possible reason for failure and devise a new, concise, high level plan that aims to mitigate the same failure. Use complete sentences.
+REFLECT_INSTRUCTION = """You are an advanced reasoning agent that can improve based on self-reflection.  
+You will be given a previous reasoning trial in which you were asked to assess the price movement of {ticker} stock.  
+The trial was incorrect because you predicted the wrong price movement.  
+
+Your task:  
+- Diagnose the possible reason for failure.  
+- Provide reflection in one paragraph.  
+- Do not output any plan or strategy.  
 
 Previous trial:
 {scratchpad}

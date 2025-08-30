@@ -12,6 +12,7 @@ from tqdm import tqdm
 from memory_module.memorydb import BrainDB
 from utils.config import args_to_config
 from summarize_module.summarizer import DeepSeekSummarizer
+from utils.config import load_existing_keys
 
 class Exp_Model:
     def __init__(self, args):
@@ -23,61 +24,73 @@ class Exp_Model:
         print("\n[Info] Streaming Train Agents with progress tracking...")
         agent_cls = PredictReflectAgent
         sample_generator = self.dataloader.load("train")
-        agents = []
+
+        seen_sft  = load_existing_keys(self.args.sft_data_path)
+        seen_grpo = load_existing_keys(self.args.grpo_data_path)
+        seen_all  = seen_sft | seen_grpo
+
         for sample in sample_generator:
+            unique_key = f"{sample['ticker']}|{sample['date']}"
+            if unique_key in seen_all:
+                print(f"[Info] Skip existing sample: {unique_key}")
+                continue
             agent = agent_cls(ticker=sample['ticker'], date=sample['date'], summary=sample['summary'], target=sample['target'], brain_db=self.brain_db)
             agent.run()
             # agents.append(agent)
-            
             if agent.is_correct():
                 prompt = agent._build_agent_prompt()
                 response = agent.scratchpad.split('Price Movement: ')[-1]
-
-                sample = {
-                    "instruction": prompt,
-                    "input": "",
-                    "output": response
+                record = {
+                    "prompt": prompt,
+                    "responses": response,
+                    "rewards": [ 1.0 ],
+                    "meta": {
+                        "ticker": sample['ticker'],
+                        "date": sample['date'],
+                        "label": sample['target']
+                    }
                 }
+                os.makedirs(os.path.dirname(self.args.sft_data_path), exist_ok=True)
+                with open(self.args.sft_data_path, 'a') as f:
+                    f.write(json.dumps(record) + "\n")
+            else:
+                print(f"[Info] Agent for {sample['ticker']} on {sample['date']} was incorrect. Initiating reflection trials...")
+                responses = []
+                rewards = []
+                for trial in range(self.args.num_reflect_trials):
+                    print(f"[Info] Trial {trial+1} for {sample['ticker']} on {sample['date']}")
+                    prev_response = agent.scratchpad.split('Price Movement: ')[-1]
+                    responses.append(prev_response)
+                    rewards.append(-1.0)
 
-                with open(self.args.data_path, 'a') as f:
-                    f.write(json.dumps(sample) + "\n")
-
-        correct, incorrect = summarize_trial(agents)
-        print(f'Finished Trial 0, Correct: {len(correct)}, Incorrect: {len(incorrect)}')
+                    agent.run()
+                    if agent.is_correct():
+                        print(agent._build_agent_prompt(), "\n\n\n")
+                        prompt = remove_reflections(agent._build_agent_prompt())
+                        response = agent.scratchpad.split('Price Movement: ')[-1]
+                        responses.append(response)
+                        rewards.append(1.0)
+                        record = {
+                            "prompt": prompt,
+                            "responses": responses,
+                            "rewards": rewards,
+                            "meta": {
+                                "ticker": sample['ticker'],
+                                "date": sample['date'],
+                                "label": sample['target']
+                            }
+                        }
+                        os.makedirs(os.path.dirname(self.args.grpo_data_path), exist_ok=True)
+                        with open(self.args.grpo_data_path, 'a') as f:
+                            f.write(json.dumps(record) + "\n")
+                        print(f"[Info] Agent for {sample['ticker']} on {sample['date']} corrected itself in trial {trial+1}.")
+                        break
+            seen_all.add(unique_key)
+        print("[Info] Finished streaming training agents.")
 
         # Train supervised policy
         supervised_finetune(self.args)
         merge_peft_adapter(model_name=self.args.output_path, output_name=self.args.rl_base_model)
-
-        # Collect comparison data
-        comparison_data = []
-
-        for trial in range(self.args.num_reflect_trials):
-            for idx, agent in enumerate([a for a in agents if not a.is_correct()]):
-                prev_response = agent.scratchpad.split('Price Movement: ')[-1]
-                agent.run()
-
-                if agent.is_correct():
-                    print(agent._build_agent_prompt(), "\n\n\n")
-                    prompt = remove_reflections(agent._build_agent_prompt())
-                    response = agent.scratchpad.split('Price Movement: ')[-1]
-
-                    sample = {"user_input": prompt, "completion_a": prev_response, "completion_b": response}
-                    comparison_data.append(sample)
-
-            correct, incorrect = summarize_trial(agents)
-            print(f'Finished Trial {trial+1}, Correct: {len(correct)}, Incorrect: {len(incorrect)}')
-
-        os.makedirs(self.args.datasets_dir, exist_ok=True)
-        comparison_data_path = os.path.join(self.args.datasets_dir, "comparison_data.json")
-
-        if comparison_data:
-            with open(comparison_data_path, 'w') as f:
-                f.write(json.dumps(comparison_data))
-
-        # Train reward model
-        train_reward_model(self.args)
-        merge_peft_adapter(model_name=self.args.reward_adapter, output_name=self.args.reward_model_name)
 
         # Optimize using reinforcement learning
         tuning_lm_with_rl(self.args)
