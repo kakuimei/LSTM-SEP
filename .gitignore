@@ -15,3 +15,6 @@ test_data/
 
 .env
 .ai-navigator/
+
+.DS_Store
+checkpoints/

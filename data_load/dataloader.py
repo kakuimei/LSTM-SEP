@@ -9,6 +9,7 @@ class DataLoader:
     def __init__(self, args, brain_db=None, summarizer=None):
         self.price_dir = args.price_dir
         self.tweet_dir = args.tweet_dir
+        self.ckpt_dir = args.ckpt_dir
         self.seq_len = args.seq_len
         self.summarizer = summarizer if summarizer else DeepSeekSummarizer()
         self.brain_db = brain_db if brain_db else BrainDB.from_config(args)
@@ -51,22 +52,6 @@ class DataLoader:
             price_path = os.path.join(self.price_dir, file)
             ordered_price_data = np.flip(np.genfromtxt(price_path, dtype=str, skip_header=False), 0)
             ticker = file[:-4]
-
-            # set up logging for this ticker
-            log_filename = self.brain_db.logger.log_filename_template.format(symbol=ticker)
-            log_path = os.path.join(self.brain_db.logger.log_dir, log_filename)
-
-            # ↓↓↓ 只在还没加过这个文件 handler 的时候再添加（关键一行） ↓↓↓
-            already = any(isinstance(h, logging.FileHandler) and getattr(h, "_log_path", None) == log_path
-                        for h in self.brain_db.logger.handlers)
-            if not already:
-                file_handler = logging.FileHandler(log_path, mode="a")
-                file_handler._log_path = log_path  # 做个标记，便于上面的判断
-                file_handler.setFormatter(logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                ))
-                self.brain_db.logger.addHandler(file_handler)
             print(f"[Info] Loading price data for {ticker}, {len(ordered_price_data)} days from {ordered_price_data[0,0]} to {ordered_price_data[-1,0]}")
             
             date_to_row = {datetime.strptime(row[0], "%Y-%m-%d").date(): row for row in ordered_price_data}
@@ -77,6 +62,27 @@ class DataLoader:
             keep = (lambda d: d < split_date) if flag == "train" else (lambda d: d >= split_date)
             data_range = [d for d in full_dates if keep(d)]
 
+            # To avoid re-processing data, find the latest date we have done for this ticker
+            latest_done_date = None
+            for mem in (self.brain_db.short_term_memory,
+                        self.brain_db.mid_term_memory,
+                        self.brain_db.long_term_memory,
+                        self.brain_db.reflection_memory):
+                if (ticker in mem.universe) and (len(mem.universe[ticker]["score_memory"]) > 0):
+                    for rec in mem.universe[ticker]["score_memory"]:
+                        d = rec.get("date", None)
+                        if d is not None:
+                            if isinstance(d, str):
+                                d = datetime.strptime(d, "%Y-%m-%d").date()
+                            if latest_done_date is None or d > latest_done_date:
+                                latest_done_date = d
+
+            if latest_done_date is None:
+                latest_done_date = min_d - timedelta(days=1)
+            last_saved_date = latest_done_date
+            print(f"[Info] Will skip dates <= {latest_done_date} for {ticker}")
+            
+            data_range = [d for d in data_range if d > latest_done_date]
             print(f"[Info] Processing train data for {ticker}, {len(data_range)} days from {data_range[0]} to {data_range[-1]}....")
             daily_summary_dict = {}
             weekly_summary_dict = {}
@@ -154,6 +160,12 @@ class DataLoader:
 
                 if (date - min_d).days % 7 == 0:
                     self.brain_db.step()
+                
+                if (date - last_saved_date).days >= 3:
+                    os.makedirs(self.ckpt_dir, exist_ok=True)
+                    print(f"[Info] 30-day progress reached at {ticker} {date_str}. Saving BrainDB...")
+                    self.brain_db.save_checkpoint(self.ckpt_dir, force=True)
+                    last_saved_date = date
             
 
                 if summary_all_parts and target is not None:

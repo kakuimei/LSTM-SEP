@@ -17,11 +17,18 @@ from utils.config import load_existing_keys
 class Exp_Model:
     def __init__(self, args):
         self.args = args
-        self.brain_db =  BrainDB.from_config(args_to_config(args))
+        # Initialize BrainDB
+        if  os.path.exists(self.args.ckpt_dir):
+            print(f"\n[Info] Loading BrainDB from checkpoint: {self.args.ckpt_dir}")
+            self.brain_db = BrainDB.load_checkpoint(self.args.ckpt_dir)
+        else:
+            print("\n[Info] No checkpoint found. Building BrainDB from config.")
+            self.brain_db = BrainDB.from_config(args_to_config(args))
+
         self.dataloader = DataLoader(args, brain_db=self.brain_db, summarizer=DeepSeekSummarizer())
 
     def train(self):
-        print("\n[Info] Streaming Train Agents with progress tracking...")
+        print("[Info] Streaming Train Agents with progress tracking...")
         agent_cls = PredictReflectAgent
         sample_generator = self.dataloader.load("train")
 

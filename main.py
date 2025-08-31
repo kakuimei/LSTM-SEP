@@ -4,7 +4,9 @@ import torch
 import numpy as np
 import random
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 fix_seed = 100
 random.seed(fix_seed)
 torch.manual_seed(fix_seed)
@@ -16,6 +18,7 @@ parser = argparse.ArgumentParser(description='generating')
 parser.add_argument("--agent_name", type=str, default="brain_agent")
 parser.add_argument("--log_dir", type=str, default="test_data/brain_output_log")
 parser.add_argument("--log_filename", type=str, default="{symbol}_run.log")
+parser.add_argument("--ckpt_dir", type=str, default="./checkpoints/latest",help="Path to load/save BrainDB checkpoints")
 
 # embedding
 parser.add_argument("--embedding_model", type=str, default="text-embedding-ada-002")
