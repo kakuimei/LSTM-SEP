@@ -157,13 +157,13 @@ class DataLoader:
                     target = self.get_sentiment(date_str, price_path)
                 else:
                     target = None
-
+                # Step BrainDB
                 if (date - min_d).days % 7 == 0:
                     self.brain_db.step()
-                
-                if (date - last_saved_date).days >= 3:
+                # Save checkpoint every 7 days
+                if (date - last_saved_date).days >= 7:
                     os.makedirs(self.ckpt_dir, exist_ok=True)
-                    print(f"[Info] 30-day progress reached at {ticker} {date_str}. Saving BrainDB...")
+                    print(f"[Info] 7-day progress reached at {ticker} {date_str}. Saving BrainDB...")
                     self.brain_db.save_checkpoint(self.ckpt_dir, force=True)
                     last_saved_date = date
             
