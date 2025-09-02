@@ -22,7 +22,7 @@ The system enhances predictive modeling by combining LLM-driven explanations wit
 ### ♻️ End-to-End Reinforcement Loop
 1. **Summarize** → Ingest daily market data & generate structured summaries  
 2. **Explain** → LLM produces reasoning → reflection step refines explanations  
-3. **Predict** → PPO/GRPO policy generates trade signals  
+3. **Predict** → GRPO policy generates trade signals  
 4. **Reinforce** → Rewards from real price movements written back into memory layers  
 
 ### ⏫ Automated Memory Promotion ("Jump")
@@ -34,7 +34,7 @@ The system enhances predictive modeling by combining LLM-driven explanations wit
 
 ## 🛠️ Tech Stack
 - **LLM Backbone**: Transformers + PEFT (LoRA, 4-bit QLoRA)  
-- **Reinforcement Learning**: PPO / GRPO with reward models  
+- **Reinforcement Learning**: GRPO with reward models  
 - **Memory System**: Custom `MemoryDB` + `BrainDB` with multi-layer storage  
 - **Retrieval**: OpenAI embeddings + FAISS for sub-second lookup  
 - **Training Data**: Daily financial news + social media streams  
@@ -49,6 +49,6 @@ flowchart TD
     B --> C[Explain v1]
     C --> D[Self-Reflection with Memory]
     D --> E[Explain v2]
-    E --> F[Predict with PPO Agent]
+    E --> F[Predict with GRPO Agent]
     F -->|Rewards| G[Update Long-Term & Reflection Memory]
     G -->|Promote/Prune| B
