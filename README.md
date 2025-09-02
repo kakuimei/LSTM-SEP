@@ -1,48 +1,54 @@
-# SEP-Memory: Enhance Explainable Stock Predictions with Multi-Layer Memory
+# SEP-Memory: Memory-Augmented Explainable Stock Predictions
 
-This project combines the **Summarize–Explain–Predict (SEP)** framework with a custom multi-layer memory system (MemoryDB & BrainDB) to deliver both accurate and human-readable stock predictions. Leveraging daily news & social media data, SEP-Memory adds:
+**SEP-Memory** is a research and engineering project that integrates the **Summarize–Explain–Predict (SEP)** forecasting framework with a **multi-layer memory system** to improve both the **accuracy** and **interpretability** of stock predictions.  
 
-- **Short-term**, **Mid-term**, **Long-term** & **Reflection** memories  
-- **Memory-augmented self-reflection prompts**  
-- **PPO-driven reinforcement** with memory feedback loops  
-- **Automated memory “jump”** for pattern consolidation  
+The system enhances predictive modeling by combining LLM-driven explanations with structured memory layers, reinforcement learning, and efficient retrieval.
 
 ---
 
-## 🚀 Key Features
+## ✨ Features
 
-1. **Multi-Layer Memory**  
-   - _Short-term_: Daily summaries & market moves  
-   - _Mid-term_: Self-reflection corrections & refined explanations  
-   - _Long-term_: High-reward patterns & robust signals  
-   - _Reflection_: Error cases for targeted retraining  
+### 🧠 Multi-Layer Memory Architecture
+- **Short-Term Memory**: Daily summaries of news, tweets, and stock movements  
+- **Mid-Term Memory**: Refined explanations and self-reflections for correction  
+- **Long-Term Memory**: Consolidated high-reward patterns and signals  
+- **Reflection Memory**: Error cases and failed predictions for targeted retraining  
 
-2. **Memory-Augmented Explainability**  
-   - Retrieve relevant past summaries & reflections  
-   - Inject context into LLM prompts for sharper, more reliable explanations  
+### 🔍 Memory-Augmented Explainability
+- Retrieve relevant past insights with **FAISS-powered embeddings**  
+- Inject memory context into prompts for more **consistent and reliable explanations**  
+- Enable **self-reflective correction** loops in explanations  
 
-3. **End-to-End Reinforcement Loop**  
-   - **Predict** with PPO policy network  
-   - Compute real-world rewards (price change or portfolio return)  
-   - Write back successes/failures into memory layers  
+### ♻️ End-to-End Reinforcement Loop
+1. **Summarize** → Ingest daily market data & generate structured summaries  
+2. **Explain** → LLM produces reasoning → reflection step refines explanations  
+3. **Predict** → PPO/GRPO policy generates trade signals  
+4. **Reinforce** → Rewards from real price movements written back into memory layers  
 
-4. **Automated Memory “Jump”**  
-   - Hot items automatically promoted from short → mid/long based on importance  
-   - Low-value items demoted or pruned  
-
-5. **OpenAI Embeddings + FAISS** for sub-second retrieval
-
----
-
-- **Summarize**: ingest & compress daily text → add to _short-term_  
-- **Explain**: LLM v1 → self-reflect with memory context → v2 → add to _mid-term_  
-- **Predict**: PPO agent reads combined state (summary + explanations + retrieved memory) → outputs trade signals → writes outcomes to _long-term_ or _reflection_
+### ⏫ Automated Memory Promotion ("Jump")
+- Important knowledge is automatically promoted:  
+  _short → mid → long-term_ memory  
+- Low-value or stale knowledge is pruned  
 
 ---
 
-## 📂 Installation & Setup
+## 🛠️ Tech Stack
+- **LLM Backbone**: Transformers + PEFT (LoRA, 4-bit QLoRA)  
+- **Reinforcement Learning**: PPO / GRPO with reward models  
+- **Memory System**: Custom `MemoryDB` + `BrainDB` with multi-layer storage  
+- **Retrieval**: OpenAI embeddings + FAISS for sub-second lookup  
+- **Training Data**: Daily financial news + social media streams  
 
-```bash
-git clone https://github.com/your-org/sep-memory.git
-cd sep-memory
-pip install -r requirements.txt
+---
+
+## 📂 Workflow
+
+```mermaid
+flowchart TD
+    A[Market Data] --> B[Summarize]
+    B --> C[Explain v1]
+    C --> D[Self-Reflection with Memory]
+    D --> E[Explain v2]
+    E --> F[Predict with PPO Agent]
+    F -->|Rewards| G[Update Long-Term & Reflection Memory]
+    G -->|Promote/Prune| B

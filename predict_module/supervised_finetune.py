@@ -1,170 +1,121 @@
-from peft import (
-    LoraConfig,
-    get_peft_model,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
-from peft.utils import prepare_model_for_kbit_training
-from transformers import LlamaForCausalLM, LlamaTokenizer
-import os
-import sys
-
-import torch
-import torch.nn as nn
-# import bitsandbytes as bnb
-import transformers
-import argparse
-import warnings
-
 from datasets import load_dataset
-from predict_module import sft_dataloader
+from transformers import (
+    AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, TrainingArguments
+)
+from peft import LoraConfig
+from trl import SFTTrainer, SFTConfig
 
 def supervised_finetune(args):
-    MICRO_BATCH_SIZE = 4
-    BATCH_SIZE = 128
-    MAX_STEPS = None
-    GRADIENT_ACCUMULATION_STEPS = BATCH_SIZE // MICRO_BATCH_SIZE
-    EPOCHS = 2
-    LEARNING_RATE = 3e-4
-    CUTOFF_LEN = 256
-    LORA_R = 8
-    LORA_ALPHA = 16
-    LORA_DROPOUT = 0.05
-    VAL_PCT = 0.1
-    TARGET_MODULES = [
-        "q_proj",
-        "v_proj",
-    ]
-    DATA_PATH = args.data_path
-    OUTPUT_DIR = args.output_path
+    # ===== 1) Tokenizer =====
+    print("\n[Info] Loading tokenizer...")
+    tok = AutoTokenizer.from_pretrained(args.model_path, use_fast=True)
+    # 常见 Llama/Vicuna 需要设置 pad
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    tok.padding_side = "right"
 
-    device_map = "auto"
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    ddp = world_size != 1
-    if ddp:
-        device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-        GRADIENT_ACCUMULATION_STEPS = GRADIENT_ACCUMULATION_STEPS // world_size
-    print(args.model_path)
-    model = LlamaForCausalLM.from_pretrained(
+    # ===== 2) 量化配置（可选） =====
+    bnb_cfg = None
+    if args.load_in_4bit:
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype="bfloat16" if args.bf16 else "float16",
+        )
+
+    # ===== 3) 加载基础模型 =====
+    print("\n[Info] Loading model...")
+    model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
-        load_in_4bit=True,
-        device_map=device_map,
-    )
-    tokenizer = LlamaTokenizer.from_pretrained(
-        args.model_path, add_eos_token=True
+        quantization_config=bnb_cfg,
+        device_map="auto",
+        trust_remote_code=False,
+        use_safetensors=True,
     )
 
-    model = prepare_model_for_kbit_training(model)
-
-    config = LoraConfig(
-        r=LORA_R,
-        lora_alpha=LORA_ALPHA,
-        target_modules=TARGET_MODULES,
-        lora_dropout=LORA_DROPOUT,
+    # ===== 4) LoRA 配置（最小必要就够） =====
+    print("\n[Info] Configuring LoRA...")
+    peft_cfg = LoraConfig(
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.05,
+        target_modules=["q_proj", "v_proj"],  # 也可用 ["q_proj","k_proj","v_proj","o_proj"]
         bias="none",
         task_type="CAUSAL_LM",
     )
-    model = get_peft_model(model, config)
-    tokenizer.pad_token_id = 0  # unk. we want this to be different from the eos token
-    # tokenizer.padding_side = "left"  # Allow batched inference
 
-    data = load_dataset("json", data_files=DATA_PATH)
-    val_set_size = VAL_PCT * len(data)
-
-    now_max_steps = max(
-        (len(data["train"]) - val_set_size) // BATCH_SIZE * EPOCHS, EPOCHS)
-    if args.resume_from_supervised_checkpoint:
-        # Check the available weights and load them
-        checkpoint_name = os.path.join(
-            args.resume_from_supervised_checkpoint, "pytorch_model.bin"
-        )  # Full checkpoint
-        if not os.path.exists(checkpoint_name):
-            pytorch_bin_path = checkpoint_name
-            checkpoint_name = os.path.join(
-                args.resume_from_supervised_checkpoint, "adapter_model.bin"
-            )  # only LoRA model - LoRA config above has to fit
-            if os.path.exists(checkpoint_name):
-                os.rename(checkpoint_name, pytorch_bin_path)
-                warnings.warn(
-                    "The file name of the lora checkpoint'adapter_model.bin' is replaced with 'pytorch_model.bin'")
-            else:
-                args.resume_from_supervised_checkpoint = (
-                    None  # So the trainer won't try loading its state
-                )
-        # The two files above have a different name depending on how they were saved, but are actually the same.
-        if os.path.exists(checkpoint_name):
-            print(f"Restarting from {checkpoint_name}")
-            adapters_weights = torch.load(checkpoint_name)
-            model = set_peft_model_state_dict(model, adapters_weights)
-        else:
-            print(f"Checkpoint {checkpoint_name} not found")
-
-        train_args_path = os.path.join(
-            resume_from_checkpoint, "trainer_state.json")
-
-        if os.path.exists(train_args_path):
-            import json
-            base_train_args = json.load(open(train_args_path, 'r'))
-            base_max_steps = base_train_args["max_steps"]
-            resume_scale = base_max_steps / now_max_steps
-            if base_max_steps > now_max_steps:
-                warnings.warn("epoch {} replace to the base_max_steps {}".format(
-                    EPOCHS, base_max_steps))
-                EPOCHS = None
-                MAX_STEPS = base_max_steps
-            else:
-                MAX_STEPS = now_max_steps
+    # ===== 5) 数据集（jsonl/json 自动读）=====
+    # 期望每条样本有 "text" 字段；若不是，下面 select_columns / formatting_func 可自定义
+    print("\n[Info] Loading dataset...")
+    ds = load_dataset("json", data_files=args.sft_data_path, split="train")
+    def build_text(example):
+        prompt = (example.get("prompt") or "").strip()
+        resp = (example.get("responses") or "").strip()
+        text = f"{prompt}\n{resp}".strip()
+        return {"text": text}
+    ds = ds.map(build_text, remove_columns=[c for c in ds.column_names if c != "text"])
+    val_pct = 0.0 if len(ds) <= 10 else 0.1
+    if val_pct > 0:
+        split = ds.train_test_split(test_size=val_pct, seed=42)
+        train_ds, eval_ds = split["train"], split["test"]
     else:
-        MAX_STEPS = now_max_steps
+        train_ds, eval_ds = ds, None
 
+    # ===== 6) 训练参数 =====
+    print("\n[Info] Preparing training...")
+    grad_accum = max(args.batch_size // args.micro_batch_size, 1)
+    sft_args = SFTConfig(
+        # === 你的原超参（等价映射） ===
+        output_dir=args.output_path,
+        per_device_train_batch_size=args.micro_batch_size,
+        gradient_accumulation_steps=grad_accum,
+        num_train_epochs=args.num_epochs,
+        learning_rate=args.lr,
+        warmup_steps=100,
+        bf16=args.bf16,
+        fp16=not args.bf16,
+        logging_steps=20,
+        eval_strategy=("steps" if eval_ds is not None else "no"),   # 你的环境用 eval_strategy
+        eval_steps=(args.eval_steps if eval_ds is not None else None),
+        save_strategy="steps",
+        save_steps=args.save_steps,
+        save_total_limit=5,
+        load_best_model_at_end=bool(eval_ds is not None),
+        ddp_find_unused_parameters=False,
+        report_to=("wandb" if args.use_wandb else "none"),
+        optim=("paged_adamw_32bit" if args.load_in_4bit else "adamw_torch"),
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        logging_first_step=True,
 
-    model.print_trainable_parameters()
-
-
-    dataloader = sft_dataloader.SFTDataLoader(
-        data, CUTOFF_LEN, val_set_size, tokenizer)
-    train_data, val_data = dataloader.load_data()
-
-    trainer = transformers.Trainer(
-        model=model,
-        train_dataset=train_data,
-        eval_dataset=val_data,
-        args=transformers.TrainingArguments(
-            per_device_train_batch_size=MICRO_BATCH_SIZE,
-            gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
-            warmup_steps=100,
-            num_train_epochs=EPOCHS,
-            max_steps=MAX_STEPS,
-            learning_rate=LEARNING_RATE,
-            fp16=True,
-            logging_steps=20,
-            evaluation_strategy="steps" if val_set_size > 0 else "no",
-            save_strategy="steps",
-            eval_steps=args.eval_steps if val_set_size > 0 else None,
-            save_steps=args.save_steps,
-            output_dir=OUTPUT_DIR,
-            save_total_limit=30,
-            load_best_model_at_end=True if val_set_size > 0 else False,
-            ddp_find_unused_parameters=False if ddp else None,
-            report_to="wandb" if args.wandb else [],
-            ignore_data_skip=args.ignore_data_skip,
-        ),
-        data_collator=transformers.DataCollatorForLanguageModeling(
-            tokenizer, mlm=False)
+        # === SFT 数据处理相关（新接口放这里） ===
+        max_length=args.cutoff_len,          # 旧的 max_seq_length -> max_length
+        packing=False,                        # 如不想 pack 就改为 False
+        dataset_text_field="text",           # 你 map 后用于训练的字段
+        dataset_num_proc=1,                  # 可按机器提升
+        assistant_only_loss=False,           # 你是 LM 文本，不是对话掩码
+        padding_free=False,                  # 非必要不启
     )
+
+    # ===== 7) SFTTrainer：一行搞定数据到训练 =====
+    print("\n[Info] Initializing trainer...")
     model.config.use_cache = False
+    trainer = SFTTrainer(
+        model=model,
+        processing_class=tok,
+        args=sft_args,  
+        peft_config=peft_cfg,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+    )
 
-    old_state_dict = model.state_dict
-    model.state_dict = (
-        lambda self, *_, **__: get_peft_model_state_dict(self, old_state_dict())
-    ).__get__(model, type(model))
+    # 可选：继续训练（断点恢复）
+    print("\n[Info] Training...")
+    trainer.train(resume_from_checkpoint=args.resume_from)
 
-    if torch.__version__ >= "2" and sys.platform != "win32":
-        model = torch.compile(model)
-
-    print("\n If there's a warning about missing keys above, please disregard :)")
-
-    with torch.autocast("cuda"):
-        trainer.train(resume_from_checkpoint=args.resume_from_supervised_checkpoint)
-
-    model.save_pretrained(OUTPUT_DIR)
+    # 只保存 LoRA 适配器（最轻量）
+    print("\n[Info] Saving LoRA adapters...")
+    trainer.model.save_pretrained(args.output_path)
+    tok.save_pretrained(args.output_path)
+    print("✅ Done. LoRA adapters saved to:", args.output_path)

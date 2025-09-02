@@ -1,261 +1,177 @@
-from dataclasses import dataclass, field
-from typing import Optional
-
+# rm_grpo_pipeline.py
+import os, random
+from typing import List, Dict, Any, Optional
 import torch
-from accelerate import Accelerator
-from datasets import load_dataset
-from peft import LoraConfig, prepare_model_for_kbit_training
-from tqdm import tqdm
-from transformers import Adafactor, AutoTokenizer, HfArgumentParser, pipeline, BitsAndBytesConfig
-from transformers import LlamaTokenizer, LlamaConfig, LlamaForSequenceClassification, LlamaForCausalLM
+from datasets import load_dataset, Dataset
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModelForCausalLM, GenerationConfig
+from trl import RewardTrainer, RewardConfig, GRPOTrainer, GRPOConfig
+from peft import LoraConfig, get_peft_model
+from dataclasses import replace
 
-from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
-from transformers import set_seed
-from trl.core import LengthSampler
-import os
+# =============== utils ===============
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
+def simple_format_bonus(text: str) -> float:
+    """ 两行 + 前缀 + 禁括号 + 合理长度 → 最多 +1.0 """
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    two = (len(lines)==2)
+    pref = len(lines)>=2 and lines[0].startswith("Price Movement: ") and lines[1].startswith("Explanation: ")
+    no_par = "(" not in text and ")" not in text
+    exp_len = len(lines[1][len("Explanation: "):]) if len(lines)>=2 else 0
+    lng = 20 <= exp_len <= 600
+    return 0.25*two + 0.25*pref + 0.25*no_par + 0.25*lng
 
-# DEFAULT_PAD_TOKEN = "[PAD]"
-# DEFAULT_EOS_TOKEN = "</s>"
-# DEFAULT_BOS_TOKEN = "</s>"
-# DEFAULT_UNK_TOKEN = "</s>"
+# ===============  用 RM 做 GRPO 在线优化 ===============
+def train_grpo_with_rm(args):
+    """
+    期望 args：
+      grpo_data_path, grpo_output_dir, base_model_name, rm_path, seed, bf16, load_in_4bit
+      epochs, steps, lr_rl, batch_size_rl, grad_accum
+      max_new_tokens, temperature, top_p, top_k, min_length
+      （可选）use_lora, lora_r/lora_alpha/lora_dropout
+    grpo 数据需要包含: prompt （label可选，不强制）
+    """
+    os.makedirs(args.grpo_output_dir, exist_ok=True)
+    set_seed(args.seed)
 
-tqdm.pandas()
-
-
-def tuning_lm_with_rl(args):
-    script_args = args
-
-    reward_model_name = script_args.reward_model_name
-
-    # dataset_name = "lvwerra/stack-exchange-paired"
-    dataset_name = script_args.datasets_dir
-    print("dataset_name: ", dataset_name)
-
-    config = PPOConfig(
-        model_name=script_args.rl_base_model,
-        learning_rate=script_args.rl_learning_rate,
-        log_with=script_args.log_with,
-        batch_size=script_args.batch_size,
-        mini_batch_size=script_args.mini_batch_size,
-        gradient_accumulation_steps=script_args.rl_gradient_accumulation_steps,
-        optimize_cuda_cache=True,
-        early_stopping=script_args.early_stopping,
-        target_kl=script_args.target_kl,
-        ppo_epochs=script_args.ppo_epochs,
-        seed=script_args.seed,
-    )
-
-    # train_dataset = load_dataset("lvwerra/stack-exchange-paired", data_dir="data/rl", split="train")
-    # train_dataset = train_dataset.select(range(100000))
-    train_dataset = load_dataset(dataset_name, split="train")
-    # train_dataset = train_dataset.select(range(100))
-    # We then define the arguments to pass to the sentiment analysis pipeline.
-    # We set `return_all_scores` to True to get the sentiment score for each token.
-    # sent_kwargs = {"return_all_scores": True, "function_to_apply": "none", "batch_size": 16, "truncation": True}
-    sent_kwargs = {"return_all_scores": True, "function_to_apply": "none", "batch_size": 1, "truncation": True}
-
-    # tokenizer = AutoTokenizer.from_pretrained(script_args.tokenizer_name)
-    # GPT-2 tokenizer has a pad token, but it is not eos_token by default. We need to set it to eos_token.
-    # only for this model.
-
-    if "llama" in script_args.tokenizer_name or "vicuna" in script_args.rl_base_model or "Vicuna" in script_args.rl_base_model:
-        tokenizer = LlamaTokenizer.from_pretrained(script_args.tokenizer_name)
+    # 读 prompt-only 数据
+    print(f"[Info] Loading GRPO dataset from: {args.grpo_data_path}")
+    ds = load_dataset("json", data_files=args.grpo_data_path, split="train")
+    def _map(ex):
+        return {"prompt": (ex.get("prompt") or "").strip()}
+    ds = ds.map(_map, remove_columns=[c for c in ds.column_names if c!="prompt"])
+    if len(ds) > 50:
+        split = ds.train_test_split(test_size=0.02, seed=args.seed)
+        train_ds, eval_ds = split["train"], split["test"]
     else:
-        tokenizer = AutoTokenizer.from_pretrained(script_args.tokenizer_name)
+        train_ds, eval_ds = ds, None
 
+    # 分词器
+    print("[Info] Loading tokenizer...")
+    tok = AutoTokenizer.from_pretrained(args.base_model_path, use_fast=True)
+    if tok.pad_token_id is None and tok.eos_token_id is not None:
+        tok.pad_token = tok.eos_token
 
-    # if "llama" in script_args.tokenizer_name or "vicuna" in script_args.rl_base_model or "Vicuna" in script_args.rl_base_model:
-    #     tokenizer.add_special_tokens(
-    #         {
-    #             "eos_token": DEFAULT_EOS_TOKEN,
-    #             "bos_token": DEFAULT_BOS_TOKEN,
-    #             "unk_token": DEFAULT_UNK_TOKEN,
-    #             "pad_token": DEFAULT_PAD_TOKEN,
-    #         }
-    #     )
-    # else:
-    #     tokenizer.pad_token = tokenizer.eos_token
-
-
-    # Below is an example function to build the dataset. In our case, we use the IMDB dataset
-    # from the `datasets` library. One should customize this function to train the model on
-    # its own dataset.
-    def build_dataset(
-        tokenizer, dataset_name="lvwerra/stack-exchange-paired", input_min_text_length=2, input_max_text_length=8
-    ):
-        """
-        Build dataset for training. This builds the dataset from `load_dataset`, one should
-        customize this function to train the model on its own dataset.
-
-        Args:
-            dataset_name (`str`):
-                The name of the dataset to be loaded.
-
-        Returns:
-            dataloader (`torch.utils.data.DataLoader`):
-                The dataloader for the dataset.
-        """
-
-        # load imdb with datasets
-        # ds = load_dataset(dataset_name, data_dir="data/rl", split="train")
-        ds = load_dataset(dataset_name, split="train")
-        original_columns = ds.column_names
-        num_proc = 1 #24
-
-        def preprocess_function(examples):
-            new_examples = {
-                "query": [],
-                "input_ids": [],
-            }
-            # for question in examples["question"]:
-            for question in examples["user_input"]:
-                query = "Question: " + question + "\n\nAnswer: "
-                tokenized_question = tokenizer(query, truncation=True)
-                new_examples["query"].append(query)
-                new_examples["input_ids"].append(tokenized_question["input_ids"])
-
-            return new_examples
-
-        ds = train_dataset.map(
-            preprocess_function,
-            batched=True,
-            num_proc=num_proc,
-            remove_columns=original_columns,
+    # 加载策略模型（被优化的 LLM）
+    quant_kwargs = {}
+    if getattr(args, "load_in_4bit", False):
+        from transformers import BitsAndBytesConfig
+        quant_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16 if args.bf16 else torch.float16
         )
-        # ds = ds.filter(lambda x: len(x["input_ids"]) < 512, batched=False)
-
-        ds.set_format(type="torch")
-        return ds
-
-
-    # We retrieve the dataloader by calling the `build_dataset` function.
-    # dataset = build_dataset(tokenizer)
-    dataset = build_dataset(tokenizer, dataset_name=dataset_name)
-
-
-    def collator(data):
-        return dict((key, [d[key] for d in data]) for key in data[0])
-
-
-    # set seed before initializing value head for deterministic eval
-    set_seed(config.seed)
-
-    # Now let's build the model, the reference model, and the tokenizer.
-    current_device = Accelerator().local_process_index
-
-    lora_config = LoraConfig(
-        r=8, #16,
-        lora_alpha=16, #32,
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-
-    model = AutoModelForCausalLMWithValueHead.from_pretrained(
-        config.model_name,
-        load_in_4bit=True,
-        # device_map={"": current_device},
+    print("[Info] Loading policy model...")
+    pol = AutoModelForCausalLM.from_pretrained(
+        args.merged_output_dir,
         device_map="auto",
-        peft_config=lora_config,
-        # layer_norm_names=[],
-        # torch_dtype=torch.float16,
-        quantization_config=BitsAndBytesConfig(llm_int8_enable_fp32_cpu_offload=True)
+        dtype=torch.bfloat16 if args.bf16 else torch.float16,
+        attn_implementation="sdpa",
+        **quant_kwargs,
     )
-    print("finetune model: ", config.model_name, type(model))
-    print("finetune model's is_loaded_in_4bit: ", model.is_loaded_in_4bit)
-
-    optimizer = None
-    if script_args.adafactor:
-        optimizer = Adafactor(
-            filter(lambda p: p.requires_grad, model.parameters()),
-            scale_parameter=False,
-            relative_step=False,
-            warmup_init=False,
-            lr=config.learning_rate,
+    if getattr(args, "use_lora", False):
+        peft_cfg = LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
+            target_modules=["q_proj","v_proj"], bias="none", task_type="CAUSAL_LM"
         )
-    # We then build the PPOTrainer, passing the model, the reference model, the tokenizer
-    ppo_trainer = PPOTrainer(
-        config,
-        model,
-        ref_model=None,
-        tokenizer=tokenizer,
-        dataset=dataset,
-        data_collator=collator,
-        optimizer=optimizer,
-    )
+        print("[Info] Applying LoRA...")
+        pol = get_peft_model(pol, peft_cfg)
+    pol.config.use_cache = False
 
-    # We then build the sentiment analysis pipeline, passing the model name and the
-    # sentiment analysis pipeline arguments. Let's also make sure to set the device
-    # to the same device as the PPOTrainer.
-    device = ppo_trainer.accelerator.device
-    if ppo_trainer.accelerator.num_processes == 1:
-        device = 0 if torch.cuda.is_available() else "cpu"  # to avoid a ` pipeline` bug
-    print("device: ", device)
-
-
-    print("reward_model_name: ", reward_model_name)
-    #! my self code to try peft reward model
-    # reward_model = LlamaForSequenceClassification.from_pretrained(
-    #     reward_model_name,
-    #     load_in_4bit=True,
-    #     device_map="auto",
-    #     torch_dtype=torch.float16,
-    # )
-    # print("reward_model: ", type(reward_model))
-    # print("reward_model is_loaded_in_4bit: ", reward_model.is_loaded_in_4bit)
-
-    # reward_model = prepare_model_for_int8_training(reward_model)
-    # reward_model_config = LlamaConfig.from_pretrained(reward_model_name)
-
-    sentiment_pipe = pipeline(
-        "sentiment-analysis",
-        model=reward_model_name,
-        # model=reward_model,
-        # config=reward_model_config,
+    # 加载 RM（打分器）
+    rm_tok = tok  # 直接复用同 tokenizer（也可单独加载）
+    print("[Info] Loading reward model...")
+    rm = AutoModelForSequenceClassification.from_pretrained(
+        args.rm_output_dir,
+        num_labels=1,
+        dtype=torch.bfloat16 if args.bf16 else torch.float16,
         device_map="auto",
-        # TypeError: LlamaForSequenceClassification.__init__() got an unexpected keyword argument 'peft_config'
-        model_kwargs={"load_in_4bit": True},
-        tokenizer=tokenizer,
-        # torch_dtype=torch.float16,
+    )
+    rm.eval()
+
+    # 采样参数（GRPO 必须采样）
+    print("[Info] Configuring generation...")
+    gen_cfg = GenerationConfig(
+        max_new_tokens=args.max_new_tokens,
+        do_sample=True,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
+        min_new_tokens=args.min_length,
+        pad_token_id=tok.pad_token_id,
+        eos_token_id=tok.eos_token_id,
     )
 
-    # We then define the arguments to pass to the `generate` function. These arguments
-    # are passed to the `generate` function of the PPOTrainer, which is a wrapper around
-    # the `generate` function of the trained model.
-    generation_kwargs = {
-        # "min_length": -1,
-        "top_k": 0.0,
-        "top_p": 1.0,
-        "do_sample": True,
-        "pad_token_id": tokenizer.pad_token_id,
-        "eos_token_id": 100_000,
-    }
-    output_min_length = 32
-    output_max_length = script_args.output_max_length
-    output_length_sampler = LengthSampler(output_min_length, output_max_length)
+    # 在线奖励：RM 分数 + 轻量格式奖励（兼容 GRPO 的调用方式）
+    def reward_fn(
+        prompts=None,
+        completions=None,
+        completion_ids=None,
+        **kwargs,
+    ) -> list[float]:
+        assert completions is not None and len(completions) > 0
 
-    for epoch, batch in tqdm(enumerate(ppo_trainer.dataloader)):
-        question_tensors = batch["input_ids"]
+        # === 选其一 ===
+        texts = completions                       # 只用 completion（推荐，干净）
+        # texts = [p + c for p, c in zip(prompts, completions)]   # 想用 prompt+completion 时启用
 
-        response_tensors = ppo_trainer.generate(
-            question_tensors,
-            return_prompt=False,
-            length_sampler=output_length_sampler,
-            **generation_kwargs,
-        )
-        batch["response"] = tokenizer.batch_decode(response_tensors, skip_special_tokens=True)
+        with torch.no_grad():
+            toks = rm_tok(
+                texts,
+                padding=True,
+                truncation=True,
+                max_length=1024,
+                return_tensors="pt",
+            )
+            # 确保与 RM 在同一设备（rm.to(device) 已在外部完成的话，也可以用 .to(device)）
+            toks = {k: v.to(rm.device) for k, v in toks.items()}
+            out = rm(**toks)
+            rm_score = out.logits.squeeze(-1).float().cpu().tolist()
 
-        # Compute sentiment score
-        texts = [q + r for q, r in zip(batch["query"], batch["response"])]
-        pipe_outputs = sentiment_pipe(texts, **sent_kwargs)
-        rewards = [torch.tensor(output[0]["score"] - script_args.reward_baseline) for output in pipe_outputs]
-
-        # Run PPO step
-        stats = ppo_trainer.step(question_tensors, response_tensors, rewards)
-        ppo_trainer.log_stats(stats, batch, rewards)
-
-        if script_args.save_freq and epoch and epoch % script_args.save_freq == 0:
-            ppo_trainer.save_pretrained(script_args.output_dir + f"step_{epoch}")
-
-        ppo_trainer.save_pretrained(script_args.output_dir + "step_saved")
+        fmt_bonus = [simple_format_bonus(s) for s in completions]
+        alpha, beta = 1.0, 0.3
+        return [alpha * rm_score[i] + beta * fmt_bonus[i] for i in range(len(completions))]
+    
+    grpo_cfg = GRPOConfig(
+        output_dir=args.grpo_output_dir,
+        learning_rate=args.lr_rl,
+        num_train_epochs=args.epochs,
+        max_steps=args.steps,
+        per_device_train_batch_size=args.batch_size_rl,
+        gradient_accumulation_steps=args.grad_accum,
+        logging_steps=10,
+        save_steps=100,
+        save_total_limit=2,
+        bf16=args.bf16,
+        fp16=not args.bf16,
+        report_to="none",
+        beta=0.04,
+        generation_kwargs=gen_cfg.__dict__,
+    )
+    grpo_cfg = replace(grpo_cfg,
+    steps_per_generation=16,
+    generation_batch_size=None,
+    num_generations=8,
+    )
+    print("[DBG] steps_per_generation=", grpo_cfg.steps_per_generation,
+        "generation_batch_size=", grpo_cfg.generation_batch_size,
+        "num_generations=", grpo_cfg.num_generations)
+    
+    print("\n[Info] Starting GRPO training...")
+    trainer = GRPOTrainer(
+        args=grpo_cfg,                # ← 用 config，不要用 args
+        model=pol,
+        processing_class=tok,                  # ← 用 tokenizer，不要用 processing_class
+        reward_funcs=[reward_fn],   # ← 用 reward_functions，不要用 reward_funcs
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        # generation_config=gen_cfg,      # 新版接口
+    )
+    trainer.train()
+    print("\n[Info] Saving GRPO (with RM)...")
+    pol.save_pretrained(args.grpo_output_dir, safe_serialization=True)
+    tok.save_pretrained(args.grpo_output_dir)
+    print(f"✅ GRPO (with RM) saved to: {args.grpo_output_dir}")

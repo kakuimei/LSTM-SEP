@@ -1,239 +1,125 @@
-import os
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
-
-import evaluate
-import numpy as np
+# rm_grpo_pipeline.py
+import os, random
+from typing import List, Dict, Any, Optional
 import torch
-import torch.nn as nn
-from datasets import load_dataset
-from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
-from transformers import (
-    AutoConfig,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    HfArgumentParser,
-    PreTrainedTokenizerBase,
-    Trainer,
-    TrainingArguments,
-)
-from transformers.utils import PaddingStrategy
-from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaForSequenceClassification, LlamaConfig
+from datasets import load_dataset, Dataset
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModelForCausalLM, GenerationConfig
+from trl import RewardTrainer, RewardConfig, GRPOTrainer, GRPOConfig
+from peft import LoraConfig, get_peft_model
 
-from predict_module import rm_dataloader
+# =============== utils ===============
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-# DEFAULT_PAD_TOKEN = "[PAD]"
-# DEFAULT_EOS_TOKEN = "</s>"
-# DEFAULT_BOS_TOKEN = "</s>"
-# DEFAULT_UNK_TOKEN = "</s>"
+def build_pairs_from_responses(ex: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    从一条样本里自动构造 (chosen, rejected) 多个对：
+    - 找 rewards 最大的一个或多个作为 chosen
+    - 找 rewards 最小的一个或多个作为 rejected
+    - 按笛卡尔积组合所有 (chosen, rejected)
+    """
+    rsps = ex.get("responses") or []
+    rws  = ex.get("rewards")  or []
+    if not rsps or len(rsps) < 2 or len(rsps) != len(rws):
+        return []
 
+    max_reward = max(rws)
+    min_reward = min(rws)
 
+    chosen_indices   = [i for i, r in enumerate(rws) if r == max_reward]
+    rejected_indices = [i for i, r in enumerate(rws) if r == min_reward]
+
+    prompt = (ex.get("prompt") or "").strip()
+
+    pairs = []
+    for ci in chosen_indices:
+        for ri in rejected_indices:
+            if ci != ri:
+                pairs.append({
+                    "prompt": prompt,
+                    "chosen": rsps[ci].strip(),
+                    "rejected": rsps[ri].strip(),
+                })
+    return pairs
+
+# =============== 1) Reward Model 训练 ===============
 def train_reward_model(args):
-    script_args = args
+    """
+    期望 args：
+      rm_data_path, rm_output_dir, rm_model_name(或与SFT同底座), seed, bf16
+      （可选）use_lora, lora_r/lora_alpha/lora_dropout, lr_rm, batch_size_rm, epochs_rm, grad_accum_rm, max_length_rm
+    数据需要包含: prompt, responses(list), rewards(list)
+    """
+    os.makedirs(args.rm_output_dir, exist_ok=True)
+    set_seed(args.seed)
 
-    dataset_name = script_args.datasets_dir
-    print("dataset_name: ", dataset_name)
+    # 读取 json/jsonl
+    print(f"[Info] Loading Reward Model training data from: {args.rm_data_path}")
+    ds = load_dataset("json", data_files=args.rm_data_path, split="train")
+    # 构 pair 数据
+    pairs = []
+    for ex in ds:
+        pair = build_pairs_from_responses(ex)
+        if pair: pairs.extend(pair)
+    if not pairs:
+        raise ValueError("没有可用的 (chosen, rejected) 对。请确认每条样本至少有2个 responses 且 rewards 不相同。")
+    pair_ds = Dataset.from_list(pairs)
+    print(f"[Info] Constructed {len(pair_ds)} (chosen, rejected) pairs for Reward Model training.")
 
-    # Define the training args. Needs to be done before the model is loaded if you are using deepspeed.
-    # model_name_split = script_args.reward_base_model.split("/")[-1]
-    # output_name = (
-    # f"{model_name_split}_peft_stack-exchange-paired_rmts__{script_args.train_subset}_{script_args.reward_learning_rate}"
-    # )
-    output_name = script_args.reward_adapter
+    # 分词器
+    print(f"[Info] Loading tokenizer from: {args.rm_model_name}")
+    tok = AutoTokenizer.from_pretrained(args.rm_model_name, use_fast=True)
+    if tok.pad_token_id is None and tok.eos_token_id is not None:
+        tok.pad_token = tok.eos_token
 
-    # Define the training args. Needs to be done before the model is loaded if you are using deepspeed.
-    training_args = TrainingArguments(
-        output_dir=output_name,
-        learning_rate=script_args.reward_learning_rate,
-        per_device_train_batch_size=script_args.per_device_train_batch_size,
-        per_device_eval_batch_size=script_args.per_device_eval_batch_size,
-        num_train_epochs=script_args.num_train_epochs,
-        weight_decay=script_args.weight_decay,
-        evaluation_strategy="steps",
-        eval_steps=200,  # 500,
-        save_strategy="steps",
-        save_steps=200,  # 500,
+    # RM = 序列分类 1 维输出（标量回报）
+    print(f"[Info] Loading Reward Model from: {args.rm_model_name}")
+    model = AutoModelForSequenceClassification.from_pretrained(
+        args.rm_model_name,
+        num_labels=1,
+        dtype=torch.bfloat16 if args.bf16 else torch.float16,
+        device_map="auto",
+        use_safetensors=True,
+    )
+
+    # 可选：对 RM 也用 LoRA（通常不需要）
+    if getattr(args, "use_lora", False):
+        peft_cfg = LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
+            target_modules=["q_proj","v_proj"], bias="none", task_type="SEQ_CLS"
+        )
+        model = get_peft_model(model, peft_cfg)
+    print(f"[Info] Reward Model loaded. Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    rm_cfg = RewardConfig(
+        output_dir=args.rm_output_dir,
+        learning_rate=getattr(args, "lr_rm", 5e-6),
+        per_device_train_batch_size=getattr(args, "batch_size_rm", 4),
+        gradient_accumulation_steps=getattr(args, "grad_accum_rm", 2),
+        num_train_epochs=getattr(args, "epochs_rm", 1),
+        max_length=getattr(args, "max_length_rm", 1024),
+        bf16=args.bf16,
+        fp16=not args.bf16,
+        logging_steps=20,
+        save_steps=200,
         save_total_limit=2,
-        gradient_accumulation_steps=script_args.reward_gradient_accumulation_steps,
-        gradient_checkpointing=script_args.gradient_checkpointing,
-        deepspeed=script_args.deepspeed,
-        # local_rank=script_args.local_rank,
-        remove_unused_columns=False,
-        label_names=[],
-        # bf16=script_args.bf16,
-        # fp16=True,
-        logging_strategy="steps",
-        logging_steps=10,
-        optim=script_args.optim,
-        lr_scheduler_type=script_args.lr_scheduler_type,
-        report_to="none"
+        report_to="none",
     )
-
-    # Load the value-head model and tokenizer.
-    if "llama" in script_args.reward_base_model or "vicuna" in script_args.reward_base_model or "Vicuna" in script_args.reward_base_model:
-        tokenizer = LlamaTokenizer.from_pretrained(script_args.reward_base_model)
-        config = LlamaConfig.from_pretrained(script_args.reward_base_model)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(script_args.reward_base_model, trust_remote_code=True)
-        config = AutoConfig.from_pretrained(script_args.reward_base_model, trust_remote_code=True)
-
-    # if "llama" in script_args.reward_base_model or "vicuna" in script_args.reward_base_model or "Vicuna" in script_args.reward_base_model:
-    #     # required for llama
-    #     tokenizer.add_special_tokens(
-    #         {
-    #             "eos_token": DEFAULT_EOS_TOKEN,
-    #             "bos_token": DEFAULT_BOS_TOKEN,
-    #             "unk_token": DEFAULT_UNK_TOKEN,
-    #             "pad_token": DEFAULT_PAD_TOKEN,
-    #         }
-    #     )
-    # else:
-    #     # required for gpt2
-    #     tokenizer.pad_token = tokenizer.eos_token
-
-
-    device_map = "auto"
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    ddp = world_size != 1
-    if ddp:
-        device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-    print("device_map: ", device_map)
-    # model = AutoModelForSequenceClassification.from_pretrained(
-    #    script_args.reward_base_model, num_labels=1, torch_dtype=torch.bfloat16
-    # )
-
-    if "llama" in script_args.reward_base_model or "vicuna" in script_args.reward_base_model or "Vicuna" in script_args.reward_base_model:
-        model = LlamaForSequenceClassification.from_pretrained(
-            script_args.reward_base_model,
-            num_labels=1,
-            load_in_4bit=True,
-            torch_dtype=torch.float16,
-            device_map=device_map,
-        )
-    else:
-        model = AutoModelForSequenceClassification.from_pretrained(
-            script_args.reward_base_model,
-            num_labels=1,
-            load_in_4bit=True,
-            torch_dtype=torch.float16,
-            device_map=device_map,
-            trust_remote_code=True,
-        )
-
-    model = prepare_model_for_kbit_training(model)
-
-    peft_config = LoraConfig(
-        task_type=TaskType.SEQ_CLS,
-        inference_mode=False,
-        r=8,
-        lora_alpha=16,  # 32,
-        lora_dropout=0.05,  # 0.1,
-        bias="none",
-    )
-
-    model = get_peft_model(model, peft_config)
-
-    model.print_trainable_parameters()
-
-    # Need to do this for gpt2, because it doesn't have an official pad token.
-    tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = tokenizer.eos_token_id
-    model.config.use_cache = not script_args.gradient_checkpointing
-    num_proc = 1  # Can adjust to be higher if you have more processors.
-
-
-    reward_dataloder = rm_dataloader.RewardDataLoader(dataset_name, script_args.train_subset, script_args.eval_subset, num_proc, tokenizer)
-    train_dataset, eval_dataset = reward_dataloder.load_data()
-
-    @dataclass
-    class RewardDataCollatorWithPadding:
-        tokenizer: PreTrainedTokenizerBase
-        padding: Union[bool, str, PaddingStrategy] = True
-        max_length: Optional[int] = None
-        pad_to_multiple_of: Optional[int] = None
-        return_tensors: str = "pt"
-
-        def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
-            features_j = []
-            features_k = []
-            for feature in features:
-                features_j.append(
-                    {
-                        "input_ids": feature["input_ids_j"],
-                        "attention_mask": feature["attention_mask_j"],
-                    }
-                )
-                features_k.append(
-                    {
-                        "input_ids": feature["input_ids_k"],
-                        "attention_mask": feature["attention_mask_k"],
-                    }
-                )
-            batch_j = self.tokenizer.pad(
-                features_j,
-                padding=self.padding,
-                max_length=self.max_length,
-                pad_to_multiple_of=self.pad_to_multiple_of,
-                return_tensors=self.return_tensors,
-            )
-            batch_k = self.tokenizer.pad(
-                features_k,
-                padding=self.padding,
-                max_length=self.max_length,
-                pad_to_multiple_of=self.pad_to_multiple_of,
-                return_tensors=self.return_tensors,
-            )
-            batch = {
-                "input_ids_j": batch_j["input_ids"],
-                "attention_mask_j": batch_j["attention_mask"],
-                "input_ids_k": batch_k["input_ids"],
-                "attention_mask_k": batch_k["attention_mask"],
-                "return_loss": True,
-            }
-            return batch
-
-
-    # Define the metric that we'll use for validation.
-    accuracy = evaluate.load("accuracy")
-
-
-    def compute_metrics(eval_pred):
-        predictions, _ = eval_pred
-        # Here, predictions is rewards_j and rewards_k.
-        # We want to see how much of the time rewards_j > rewards_k.
-        predictions = np.argmax(predictions, axis=0)
-        labels = np.zeros(predictions.shape)
-        return accuracy.compute(predictions=predictions, references=labels)
-
-
-    class RewardTrainer(Trainer):
-        # Define how to compute the reward loss. We use the InstructGPT pairwise logloss: https://arxiv.org/abs/2203.02155
-        def compute_loss(self, model, inputs, return_outputs=False):
-            rewards_j = model(
-                input_ids=inputs["input_ids_j"], attention_mask=inputs["attention_mask_j"])[0]
-            rewards_k = model(
-                input_ids=inputs["input_ids_k"], attention_mask=inputs["attention_mask_k"])[0]
-            loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
-            if return_outputs:
-                return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
-            return loss
-
-
-    # Train the model, woohoo.
+    
+    model.config.use_cache = False
     trainer = RewardTrainer(
         model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        compute_metrics=compute_metrics,
-        data_collator=RewardDataCollatorWithPadding(
-            tokenizer=tokenizer, max_length=512, pad_to_multiple_of=8),
+        args=rm_cfg,
+        train_dataset=pair_ds,
+        eval_dataset=None,
+        processing_class=tok,
+        # RewardTrainer 期望字段名：prompt/chosen/rejected
     )
-
-    model.config.use_cache = False
-
-    trainer.train(script_args.resume_from_reward_checkpoint)
-
-    print("Saving last checkpoint of the model")
-    # model.save_pretrained(output_name + "_peft_last_checkpoint")
-    model.save_pretrained(output_name)
+    print("[Info] Starting Reward Model training...")
+    trainer.train()
+    print("[Info] Reward Model training completed.")
+    model.save_pretrained(args.rm_output_dir, safe_serialization=True)
+    tok.save_pretrained(args.rm_output_dir)
+    print(f"✅ Reward Model saved to: {args.rm_output_dir}")

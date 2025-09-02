@@ -1,61 +1,61 @@
-from dataclasses import dataclass, field
 from typing import Optional
-
-import peft
+import os
 import torch
 from peft import PeftConfig, PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from transformers import LlamaForCausalLM, LlamaTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 def merge_peft_adapter(
-                    model_name = "./lora-alpaca_default_config",
-                    output_name = None
-                    ):
-    peft_model_id = model_name
-    peft_config = PeftConfig.from_pretrained(peft_model_id)
-    print("peft_config: ", peft_config)
+    adapter_dir: str = "./lora-alpaca_default_config",
+    output_dir: Optional[str] = None,
+    base_model_id: Optional[str] = None,
+    trust_remote_code: bool = False,
+    dtype: str = "auto",          # 可选: "auto" / "bfloat16" / "float16" / "float32"
+) -> str:
+    """
+    将 LoRA 适配器与基座模型合并并导出为 safetensors。
+    - adapter_dir: 训练得到的 LoRA 目录（包含 adapter_model.* / adapter_config.json）
+    - output_dir: 结果保存目录（默认 adapter_dir + '-merged'）
+    - base_model_id: 覆盖使用的基座模型名/路径（默认从适配器配置中读取）
+    - trust_remote_code: 对需要自定义代码的模型设为 True（如某些 ChatGLM 等）
+    - dtype: 加载合并时的精度；"auto" 会按模型权重自动选择
+    """
+    if output_dir is None:
+        output_dir = f"{adapter_dir}-merged"
+    os.makedirs(output_dir, exist_ok=True)
 
-    model = AutoModelForCausalLM.from_pretrained(
-        peft_config.base_model_name_or_path,
-        return_dict=True,
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
-        quantization_config=BitsAndBytesConfig(llm_int8_enable_fp32_cpu_offload=True)
-        # ValueError: Loading THUDM/chatglm-6b requires you to execute the configuration file in that repo on your local machine. Make sure you have read the code there to avoid malicious use, then set the option `trust_remote_code=True` to remove this error.
-        # trust_remote_code=True,
+    # 1) 解析基座模型 id
+    if base_model_id is None:
+        peft_cfg = PeftConfig.from_pretrained(adapter_dir)
+        base_model_id = peft_cfg.base_model_name_or_path
+
+    # 2) 加载基座（不量化，避免合并出错）
+    torch_dtype = {
+        "auto": "auto",
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+        "float32": torch.float32,
+    }[dtype]
+
+    base = AutoModelForCausalLM.from_pretrained(
+        base_model_id,
+        dtype=torch_dtype,
+        device_map="auto",            # 显存不足时可改为 None + .to("cpu")
+        trust_remote_code=trust_remote_code,
+        use_safetensors=True,
     )
 
-    # tokenizer = AutoTokenizer.from_pretrained(peft_config.base_model_name_or_path)
-    # using above code, it will raise exception "ValueError: Tokenizer class LLaMATokenizer does not exist or is not currently imported."
-    # reference  https://github.com/huggingface/transformers/issues/22222
-    # Hi @candowu, thanks for raising this issue. This is arising, because the tokenizer in the config on the hub points to LLaMATokenizer. However, the tokenizer in the library is LlamaTokenizer.
-    # This is likely due to the configuration files being created before the final PR was merged in.
-    # tokenizer = LlamaTokenizer.from_pretrained(peft_config.base_model_name_or_path)
+    # 3) 加载并合并 LoRA
+    model = PeftModel.from_pretrained(base, adapter_dir)
+    model = model.merge_and_unload()  # 将 LoRA 权重写回基座并丢弃适配器结构
+    gc = model.generation_config
+    gc.do_sample = True 
 
-    # Load the Lora model
-    model = PeftModel.from_pretrained(model, peft_model_id)
-    model.eval()
+    # 4) 保存为 safetensors（安全/通用）
+    model.save_pretrained(output_dir, safe_serialization=True)
 
-    # key_list = [key for key, _ in model.base_model.model.named_modules() if "lora" not in key]
-    # print("key_list: ", key_list)
-    # for key in key_list:
-    #     print("key: ", key)
-    #     # peft==0.2.0 work
-    #     parent, target, target_name = model.base_model._get_submodules(key)
-    #     # peft==0.3.0.dev0 class has no method _get_submodules, use code below, other error. WTF!
-    #     # from peft.tuners.lora import _get_submodules
-    #     # parent, target, target_name = _get_submodules(model.base_model, key)
-    #     if isinstance(target, peft.tuners.lora.Linear):
-    #         bias = target.bias is not None
-    #         new_module = torch.nn.Linear(target.in_features, target.out_features, bias=bias)
-    #         model.base_model._replace_module(parent, target_name, new_module, target)
-    #
-    # model = model.base_model.model
-    model = model.merge_and_unload()
+    # 5) 保存 tokenizer（优先基座同款）
+    tok = AutoTokenizer.from_pretrained(base_model_id, use_fast=True, trust_remote_code=trust_remote_code)
+    tok.save_pretrained(output_dir,safe_serialization=True)
 
-    if output_name is None:
-        output_name = f"{model_name}-adapter-merged"
-        model.save_pretrained(output_name)
-    else:
-        model.save_pretrained(f"{output_name}")
-    # model.push_to_hub(f"{model_name}-adapter-merged", use_temp_dir=False)
+    print(f"✅ Merged model saved to: {output_dir}")
+    return output_dir

@@ -1,39 +1,25 @@
 name: lstm-sep
 channels:
-  - defaults
   - conda-forge
+  - pytorch
+  - nvidia
+channel_priority: strict
+
 dependencies:
-  - bzip2=1.0.8=h80987f9_6
-  - ca-certificates=2025.8.3=hbd8a1cb_0
-  - expat=2.7.1=h313beb8_0
-  - faiss=1.9.0=py310h2dd55c0_0_cpu
-  - faiss-cpu=1.9.0=hd610c6a_0
-  - libblas=3.9.0=34_h10e41b3_openblas
-  - libcblas=3.9.0=34_hb3479ef_openblas
-  - libcxx=20.1.8=h8869778_0
-  - libfaiss=1.9.0=h682f5e0_0_cpu
-  - libffi=3.4.4=hca03da5_1
-  - libgfortran=15.1.0=hfdf1602_1
-  - libgfortran5=15.1.0=hb74de2c_1
-  - liblapack=3.9.0=34_hc9a63f6_openblas
-  - libopenblas=0.3.30=openmp_h60d53f8_2
-  - libsqlite=3.46.0=hfb93653_0
-  - libzlib=1.2.13=hfb2fe0b_6
-  - llvm-openmp=20.1.8=hbb9b287_2
-  - ncurses=6.5=hee39554_0
-  - openssl=3.5.2=he92f556_0
-  - packaging=25.0=pyh29332c3_1
-  - pip=25.2=pyh8b19718_0
-  - python=3.10.14=h2469fbe_0_cpython
-  - python_abi=3.10=8_cp310
-  - readline=8.3=h0b18652_0
-  - setuptools=78.1.1=py310hca03da5_0
-  - sqlite=3.50.2=h79febb2_1
-  - tk=8.6.15=hcd8a7d5_0
-  - wheel=0.45.1=py310hca03da5_0
-  - xz=5.6.4=h80987f9_1
-  - zlib=1.2.13=hfb2fe0b_6
+  - python=3.10
+  - pip
+
+  # 如果你确实需要用 conda 安装一些“高层”包（可选）：
+  # - numpy
+  # - pandas
+
+  # 重要：不要在这里列出 libzlib/libopenblas/openssl/sqlite 等低层库
+
   - pip:
+      # ⚠️ 用 pip 版本，避免 conda 的 raft 依赖冲突
+      - faiss-cpu==1.9.0
+
+      # 下面基本照你原来的 pip 列表（可按需删减）
       - accelerate==1.1.1
       - aiohappyeyeballs==2.6.1
       - aiohttp==3.12.15
@@ -170,4 +156,3 @@ dependencies:
       - yarl==1.20.1
       - zipp==3.23.0
       - zstandard==0.24.0
-prefix: /Users/guoyiming/miniconda3/envs/lstm-sep
